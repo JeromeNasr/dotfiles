@@ -11,6 +11,11 @@ PanelWindow {
     id: root
 
     property bool showing: false
+    // Only keep the surface mapped while the menu is open (or closing): an idle full-screen layer still costs the compositor every frame.
+    property bool mapped: false
+    onShowingChanged: { if (showing) { unmapTimer.stop(); mapped = true } else unmapTimer.restart() }
+    Timer { id: unmapTimer; interval: 700; onTriggered: root.mapped = false }
+    visible: mapped
     property real prog: showing ? 1 : 0
     Behavior on prog { NumberAnimation { duration: root.showing ? 260 : 150; easing.type: root.showing ? Easing.OutQuint : Easing.InCubic } }
 

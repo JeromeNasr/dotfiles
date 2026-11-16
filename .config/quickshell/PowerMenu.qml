@@ -32,6 +32,11 @@ PanelWindow {
     property int itemSpacing: defaultSpacing
 
     property bool showing: false
+    // Only keep the surface mapped while the menu is open (or closing): an idle full-screen layer still costs the compositor every frame.
+    property bool mapped: false
+    onShowingChanged: { if (showing) { unmapTimer.stop(); mapped = true } else unmapTimer.restart() }
+    Timer { id: unmapTimer; interval: 700; onTriggered: root.mapped = false }
+    visible: mapped
     property bool settingsOpen: false
     property bool dragging: false
     property int currentIndex: 0
@@ -48,7 +53,7 @@ PanelWindow {
     readonly property int iconRes: 128
     readonly property bool lightMode: Theme._bgBase.hslLightness > 0.5
 
-    Component.onCompleted: BluetoothState.init()
+    Component.onCompleted: { BluetoothState.init(); hibCheck.running = true }
 
     readonly property bool movedFromDefault: offsetX !== 0 || offsetY !== 0 || horizontal
         || menuSize !== defaultSize
@@ -166,14 +171,23 @@ PanelWindow {
     }
 
     readonly property var actions: [
-        { name: "shutdown",  label: "Shut down", icon: "shutdown.png",  key: "s", cmd: ["systemctl", "poweroff"] },
-        { name: "reboot",    label: "Reboot",    icon: "reboot.png",    key: "r", cmd: ["systemctl", "reboot"] },
-        { name: "suspend",   label: "Suspend",   icon: "suspend.png",   key: "z", cmd: ["systemctl", "suspend"] },
-        { name: "logout",    label: "Log out",   icon: "logout.png",    key: "e", dispatch: "hl.dsp.exit()" },
-        { name: "hibernate", label: "Hibernate", icon: "hibernate.png", key: "h", cmd: ["systemctl", "hibernate"] }
+        { name: "shutdown",  label: "Shut down", icon: "shutdown.png",  key: "s", act: "poweroff" },
+        { name: "reboot",    label: "Reboot",    icon: "reboot.png",    key: "r", act: "reboot" },
+        { name: "suspend",   label: "Suspend",   icon: "suspend.png",   key: "z", act: "suspend" },
+        { name: "lock",      label: "Lock",      icon: "lock.png",      key: "l", act: "lock" },
+        { name: "logout",    label: "Log out",   icon: "logout.png",    key: "e", act: "logout" },
+        { name: "hibernate", label: "Hibernate", icon: "hibernate.png", key: "h", act: "hibernate" }
     ]
 
+    // Hibernate only appears when logind says the machine can actually do it
+    property bool canHibernate: false
+    Process {
+        id: hibCheck
+        command: ["sh", "-c", "busctl call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager CanHibernate"]
+        stdout: StdioCollector { onStreamFinished: root.canHibernate = text.indexOf('"yes"') >= 0 }
+    }
     readonly property var visibleActions: actions.filter(function (a) {
+        if (a.name === "hibernate" && !root.canHibernate) return false
         return root.hiddenNames.indexOf(a.name) < 0
     })
 
@@ -187,11 +201,9 @@ PanelWindow {
     }
 
     function runAction(a) {
-        if (a.dispatch)
-            Hyprland.dispatch(a.dispatch)
-        else if (a.cmd)
-            Quickshell.execDetached({ command: a.cmd })
+        // close first so the menu isn't on screen when locking / suspending
         root.closeMenu()
+        Quickshell.execDetached({ command: [Quickshell.env("HOME") + "/.local/bin/power-action", a.act] })
     }
 
     function openMenu() {
@@ -200,6 +212,7 @@ PanelWindow {
             var scr = Quickshell.screens.find(function (s) { return s.name === mon.name })
             if (scr) root.screen = scr
         }
+        hibCheck.running = true
         currentIndex = 0
         settingsOpen = false
         dragging = false

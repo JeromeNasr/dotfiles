@@ -12,6 +12,7 @@ PanelWindow {
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
     WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.namespace: "settings"
     WlrLayershell.keyboardFocus: root.showing ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
 
     mask: Region {
@@ -24,7 +25,11 @@ PanelWindow {
     function nextPage() { selectedIndex = (selectedIndex + 1) % navItems.length }
     function prevPage() { selectedIndex = (selectedIndex - 1 + navItems.length) % navItems.length }
 
-    onShowingChanged: if (!showing) dragging = false
+    // Only keep the surface mapped while open (or closing): an idle full-screen layer still costs the compositor every frame.
+    property bool mapped: false
+    onShowingChanged: { if (showing) { unmapTimer.stop(); mapped = true } else { dragging = false; unmapTimer.restart() } }
+    Timer { id: unmapTimer; interval: 700; onTriggered: root.mapped = false }
+    visible: mapped
 
     property real cardMargin: 40
     property real dragMargin: 8
@@ -170,6 +175,10 @@ PanelWindow {
         }
         function sound(): void {
             root.selectedIndex = 1
+            root.show()
+        }
+        function display(): void {
+            root.selectedIndex = 2
             root.show()
         }
         function network(): void {

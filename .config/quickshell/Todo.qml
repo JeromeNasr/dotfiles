@@ -16,6 +16,11 @@ PanelWindow {
     property int maxItems: 200
 
     property bool showing: false
+    // Only keep the surface mapped while the menu is open (or closing): an idle full-screen layer still costs the compositor every frame.
+    property bool mapped: false
+    onShowingChanged: { if (showing) { unmapTimer.stop(); mapped = true } else unmapTimer.restart() }
+    Timer { id: unmapTimer; interval: 700; onTriggered: root.mapped = false }
+    visible: mapped
     property bool ready: false
     property bool dragging: false
     property int remaining: 0

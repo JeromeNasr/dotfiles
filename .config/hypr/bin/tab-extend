@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# Use an Android tablet as a wired extra monitor: tab-extend up|down|status|watch
+#
+#   Hyprland headless output --> wayvnc (127.0.0.1 only) --> adb reverse over the USB cable --> VNC app on the tablet
+#
+# No Wi-Fi in the path, so latency is just capture + encode + USB.
+# Tuning via env: TAB_RES (default 1920x1200), TAB_HZ (60), TAB_PORT (5901), TAB_MODEL (SM-X61 = Tab S9 FE+; "" = any device)
+PORT=${TAB_PORT:-5901}
+RES=${TAB_RES:-1920x1200}
+HZ=${TAB_HZ:-60}
+MODEL=${TAB_MODEL-SM-X61}
+STATE=${XDG_RUNTIME_DIR:-/tmp}/tab-extend
+NAME=TAB
+POSFILE=$HOME/.config/quickshell/state/tab-pos   # where you last dragged the tablet screen to
+note() { notify-send -i video-display "Tablet display" "$1" 2>/dev/null; echo "$1"; }
+
+# first USB device (optionally matching MODEL) that is authorized
+find_dev() {
+    adb devices | awk 'NR>1 && $2=="device" {print $1}' | while read -r s; do
+        [[ $s == *:* ]] && continue
+        if [ -z "$MODEL" ] || adb -s "$s" shell getprop ro.product.model 2>/dev/null | grep -q "$MODEL"; then echo "$s"; break; fi
+    done
+}
+
+up() {
+    [ -f "$STATE.out" ] && down quiet
+    local dev; dev=$(find_dev)
+    if [ -z "$dev" ]; then
+        if adb devices | grep -q unauthorized; then note "Tablet connected but not authorised: tap 'Allow USB debugging' on it"; else note "No tablet found over USB (is USB debugging on?)"; fi
+        return 1
+    fi
+    # fixed name so the position you dragged it to is remembered between plugs
+    local out=$NAME i
+    hyprctl output remove "$out" >/dev/null 2>&1
+    hyprctl output create headless "$out" >/dev/null
+    local pos=auto-right
+    [ -s "$POSFILE" ] && pos=$(cat "$POSFILE")
+    # set the mode and wait until it really sticks (right after creation Hyprland can still reset it)
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+        hyprctl eval "hl.monitor({ output = '$out', mode = '$RES@$HZ', position = '$pos', scale = 1 })" >/dev/null
+        sleep 0.3
+        [ "$(hyprctl monitors -j | jq -r --arg o "$out" '.[]|select(.name==$o)|"\(.width)x\(.height)"')" = "$RES" ] && break
+    done
+    echo "$out" > "$STATE.out"; echo "$dev" > "$STATE.dev"
+
+    setsid wayvnc -o "$out" -f "$HZ" -g -R -p -k us 127.0.0.1 "$PORT" >"$STATE.log" 2>&1 &
+    echo $! > "$STATE.pid"
+    sleep 0.4
+    adb -s "$dev" reverse "tcp:$PORT" "tcp:$PORT" >/dev/null
+    # AVNC (and most VNC apps) open vnc:// links directly
+    adb -s "$dev" shell am start -a android.intent.action.VIEW -d "vnc://127.0.0.1:$PORT" >/dev/null 2>&1
+    note "Tablet display ready ($out $RES@$HZ)"
+}
+
+savepos() {   # remember where the screen was placed
+    [ -f "$STATE.out" ] || return
+    local p; p=$(hyprctl monitors -j | jq -r --arg o "$(cat "$STATE.out")" '.[]|select(.name==$o)|"\(.x)x\(.y)"')
+    [ -n "$p" ] && { mkdir -p "$(dirname "$POSFILE")"; echo "$p" > "$POSFILE"; }
+}
+
+down() {
+    savepos
+    [ -f "$STATE.pid" ] && kill "$(cat "$STATE.pid")" 2>/dev/null
+    [ -f "$STATE.dev" ] && adb -s "$(cat "$STATE.dev")" reverse --remove "tcp:$PORT" >/dev/null 2>&1
+    [ -f "$STATE.out" ] && hyprctl output remove "$(cat "$STATE.out")" >/dev/null 2>&1
+    rm -f "$STATE".{pid,dev,out}
+    [ "$1" = quiet ] || note "Tablet display removed"
+}
+
+status() { [ -f "$STATE.out" ] && echo "up: $(cat "$STATE.out") -> $(cat "$STATE.dev")" || echo down; }
+
+# plug in = extend, unplug = remove
+watch() {
+    while :; do
+        dev=$(find_dev)
+        if [ -n "$dev" ] && [ -f "$STATE.out" ]; then
+            savepos
+            adb -s "$dev" reverse --list 2>/dev/null | grep -q "tcp:$PORT" || adb -s "$dev" reverse "tcp:$PORT" "tcp:$PORT" >/dev/null 2>&1
+        elif [ -n "$dev" ] && [ ! -f "$STATE.out" ]; then up
+        elif [ -z "$dev" ] && [ -f "$STATE.out" ]; then down; fi
+        sleep 2
+    done
+}
+
+case "$1" in
+    up) up ;;
+    down) down ;;
+    toggle) [ -f "$STATE.out" ] && down || up ;;
+    status) status ;;
+    watch) trap 'down quiet' EXIT; watch ;;
+    *) echo "usage: tab-extend up|down|toggle|status|watch"; exit 1 ;;
+esac

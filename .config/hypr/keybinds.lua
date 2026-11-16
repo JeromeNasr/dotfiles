@@ -162,6 +162,20 @@ hl.bind("XF86Calculator", hl.dsp.exec_cmd("kcalc"))
 hl.bind("XF86AudioMedia", hl.dsp.exec_cmd("spotify"))
 hl.bind("XF86AudioRecord", hl.dsp.exec_cmd(os.getenv("HOME") .. "/dotfiles/dotfiles/.config/hypr/bin/record-toggle"))
 
+-- RK68 (physical): the board sends plain F1-F12 for Fn+1..= -- map them to the icons printed on the keycaps
+hl.bind("F1", hl.dsp.exec_cmd("qs ipc call project toggle"))   -- monitor: display/HDMI menu
+hl.bind("F2", hl.dsp.exec_cmd("qs ipc call overview toggle"))  -- home: workspace overview
+hl.bind("F3", hl.dsp.exec_cmd("thunderbird"))                  -- mail
+hl.bind("F4", hl.dsp.exec_cmd("kcalc"))                        -- calculator
+hl.bind("F5", hl.dsp.exec_cmd("spotify"))                      -- music
+hl.bind("F6", hl.dsp.exec_cmd(os.getenv("HOME") .. "/dotfiles/dotfiles/.config/hypr/bin/record-toggle")) -- record start/stop
+hl.bind("F7", hl.dsp.exec_cmd("playerctl previous"), { locked = true })
+hl.bind("F8", hl.dsp.exec_cmd("playerctl stop"), { locked = true })
+hl.bind("F9", hl.dsp.exec_cmd("playerctl next"), { locked = true })
+hl.bind("F10", hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"), { locked = true })
+hl.bind("F11", hl.dsp.exec_cmd("wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"), { locked = true, repeating = true })
+hl.bind("F12", hl.dsp.exec_cmd("wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+"), { locked = true, repeating = true })
+
 -- Scratchpad terminal (Super+Z): spawn on first use, then just show/hide the special workspace
 hl.bind(mainMod .. " + Z", function()
     local found = false

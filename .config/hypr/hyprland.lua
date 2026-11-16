@@ -18,6 +18,7 @@ hl.on("hyprland.start", function()
     hl.exec_cmd("wl-paste --type image --watch cliphist store")
     hl.exec_cmd("/usr/lib/polkit-kde-authentication-agent-1")
 
+    hl.exec_cmd("sleep 4 && " .. os.getenv("HOME") .. "/dotfiles/dotfiles/.config/hypr/bin/tab-extend watch") -- plug in an Android tablet over USB = extra screen
     hl.exec_cmd("hypridle") -- idle/lock/sleep handling (was lost in the .conf -> Lua migration)
 
     hl.exec_cmd("awww-daemon")

@@ -105,17 +105,17 @@ Item {
 
     function actionLabel(dev) {
         if (!dev) return ""
-        if (dev.pairing) return "PAIRING..."
+        if (dev.pairing) return "Pairing..."
 
         switch (dev.state) {
         case BluetoothDeviceState.Connected:
-            return "DISCONNECT"
+            return "Disconnect"
         case BluetoothDeviceState.Connecting:
-            return "CONNECTING..."
+            return "Connecting..."
         case BluetoothDeviceState.Disconnecting:
-            return "DISCONNECTING..."
+            return "Disconnecting..."
         default:
-            return "CONNECT"
+            return "Connect"
         }
     }
 
@@ -149,8 +149,8 @@ Item {
         spacing: 14
 
         Text {
-            text: "BLUETOOTH"; color: Theme.text
-            font.family: Theme.fontFamily; font.pixelSize: 19; font.letterSpacing: 3
+            text: "Bluetooth"; color: Theme.text
+            font.family: Theme.fontFamily; font.pixelSize: 19
         }
 
         Rectangle { width: parent.width; height: 1; color: Theme.border }
@@ -168,12 +168,11 @@ Item {
 
             Text {
                 anchors.centerIn: parent
-                text: page.powered ? "BLUETOOTH ON" : "BLUETOOTH OFF"
+                text: page.powered ? "Bluetooth on" : "Bluetooth off"
                 color: page.powered ? Theme.accent : Theme.textFaint
                 font.family: Theme.fontFamily
                 font.pixelSize: 10
                 font.bold: true
-                font.letterSpacing: 1
             }
 
             MouseArea {
@@ -214,11 +213,10 @@ Item {
 
                     Text {
                         anchors.centerIn: parent
-                        text: "NO BLUETOOTH ADAPTER"
+                        text: "No Bluetooth adapter"
                         color: Theme.textDim
                         font.family: Theme.fontFamily
                         font.pixelSize: 11
-                        font.letterSpacing: 1
                     }
                 }
 
@@ -241,11 +239,10 @@ Item {
 
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            text: "BLUETOOTH IS OFF"
+                            text: "Bluetooth is off"
                             color: Theme.textDim
                             font.family: Theme.fontFamily
                             font.pixelSize: 11
-                            font.letterSpacing: 1
                         }
                     }
                 }
@@ -269,11 +266,10 @@ Item {
 
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            text: "SCANNING FOR DEVICES..."
+                            text: "Scanning for devices..."
                             color: Theme.textDim
                             font.family: Theme.fontFamily
                             font.pixelSize: 11
-                            font.letterSpacing: 1
                         }
 
                         Text {

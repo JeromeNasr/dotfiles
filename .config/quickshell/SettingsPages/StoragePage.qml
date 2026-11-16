@@ -171,11 +171,11 @@ Item {
             Row {
                 width: parent.width; spacing: 10
                 ToolButton {
-                    width: (parent.width - 8) / 2; label: "CANCEL"
+                    width: (parent.width - 8) / 2; label: "Cancel"
                     onClicked: confirmPopup.visible = false
                 }
                 ToolButton {
-                    width: (parent.width - 8) / 2; label: "CONFIRM"; accent: true
+                    width: (parent.width - 8) / 2; label: "Confirm"; accent: true
                     onClicked: { confirmPopup.visible = false; page.runCommand(page.pendingAction) }
                 }
             }
@@ -192,8 +192,8 @@ Item {
         spacing: 14
 
         Text {
-            text: "STORAGE"; color: Theme.text
-            font.family: Theme.fontFamily; font.pixelSize: 19; font.letterSpacing: 3
+            text: "Storage"; color: Theme.text
+            font.family: Theme.fontFamily; font.pixelSize: 19
         }
 
         Rectangle { width: parent.width; height: 1; color: Theme.border }
@@ -224,8 +224,8 @@ Item {
                     width: parent.width; spacing: 10
 
                     Text {
-                        text: "DRIVES"; color: Theme.text
-                        font.family: Theme.fontFamily; font.pixelSize: 15; font.bold: true; font.letterSpacing: 2
+                        text: "Drives"; color: Theme.text
+                        font.family: Theme.fontFamily; font.pixelSize: 15; font.bold: true
                     }
 
                     Repeater {
@@ -268,16 +268,16 @@ Item {
                                 Row {
                                     width: parent.width; height: 13; spacing: 14
                                     Text {
-                                        text: page.sdaUsageData ? page.formatBytes(page.sdaUsageData.used) + " USED" : "-- USED"
+                                        text: page.sdaUsageData ? page.formatBytes(page.sdaUsageData.used) + " used" : "-- used"
                                         color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: 11
                                     }
                                     Text {
                                         text: page.sdaUsageData && modelData.size > page.sdaUsageData.used
-                                            ? page.formatBytes(modelData.size - page.sdaUsageData.used) + " FREE" : "-- FREE"
+                                            ? page.formatBytes(modelData.size - page.sdaUsageData.used) + " free" : "-- free"
                                         color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: 11
                                     }
                                     Text {
-                                        text: page.formatBytes(modelData.size) + " TOTAL"
+                                        text: page.formatBytes(modelData.size) + " total"
                                         color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: 11
                                     }
                                 }
@@ -286,8 +286,8 @@ Item {
                     }
 
                     Text {
-                        text: "FILESYSTEM"; color: Theme.text; topPadding: 4
-                        font.family: Theme.fontFamily; font.pixelSize: 15; font.bold: true; font.letterSpacing: 2
+                        text: "Filesystem"; color: Theme.text; topPadding: 4
+                        font.family: Theme.fontFamily; font.pixelSize: 15; font.bold: true
                     }
 
                     Repeater {
@@ -326,15 +326,15 @@ Item {
                                 Row {
                                     width: parent.width; height: 13; spacing: 14
                                     Text {
-                                        text: page.formatBytes(modelData.used) + " USED"
+                                        text: page.formatBytes(modelData.used) + " used"
                                         color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: 11
                                     }
                                     Text {
-                                        text: page.formatBytes(modelData.available) + " FREE"
+                                        text: page.formatBytes(modelData.available) + " free"
                                         color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: 11
                                     }
                                     Text {
-                                        text: page.formatBytes(modelData.total) + " TOTAL"
+                                        text: page.formatBytes(modelData.total) + " total"
                                         color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: 11
                                     }
                                 }
@@ -343,44 +343,44 @@ Item {
                     }
 
                     Text {
-                        text: "CLEANUP"; color: Theme.text; topPadding: 4
-                        font.family: Theme.fontFamily; font.pixelSize: 15; font.bold: true; font.letterSpacing: 2
+                        text: "Cleanup"; color: Theme.text; topPadding: 4
+                        font.family: Theme.fontFamily; font.pixelSize: 15; font.bold: true
                     }
 
                     Repeater {
                         model: [
                             {
-                                key: "trash", label: "TRASH", action: "EMPTY", title: "EMPTY TRASH?",
+                                key: "trash", label: "Trash", action: "Empty", title: "Empty trash?",
                                 message: "This permanently deletes everything in ~/.local/share/Trash.",
                                 command: "rm -rf -- \"$HOME/.local/share/Trash/files/\"* \"$HOME/.local/share/Trash/info/\"*"
                             },
                             {
-                                key: "cliphist", label: "CLIPHIST", action: "WIPE", title: "WIPE CLIPBOARD HISTORY?",
+                                key: "cliphist", label: "Cliphist", action: "Wipe", title: "Wipe clipboard history?",
                                 message: "This permanently clears your entire clipboard history (cliphist).",
                                 command: "cliphist wipe"
                             },
                             {
-                                key: "thumbs", label: "WALLPAPER PICKER", action: "CLEAR", title: "CLEAR THUMBNAIL CACHE?",
+                                key: "thumbs", label: "Wallpaper picker", action: "Clear", title: "Clear thumbnail cache?",
                                 message: "This permanently deletes everything in ~/.cache/quickshell/thumbs.",
                                 command: "rm -rf -- \"$HOME/.cache/quickshell/thumbs/\"*"
                             },
                             {
-                                key: "yay", label: "YAY CACHE", action: "CLEAN", title: "CLEAR YAY CACHE?",
+                                key: "yay", label: "yay cache", action: "Clean", title: "Clear yay cache?",
                                 message: "CACHE_PLACEHOLDER",
                                 command: "rm -rf -- \"$HOME/.cache/yay/\"*"
                             },
                             {
-                                key: "pacman", label: "PACMAN CACHE", action: "CLEAN", title: "CLEAN PACMAN CACHE?",
+                                key: "pacman", label: "pacman cache", action: "Clean", title: "Clean pacman cache?",
                                 message: "paccache will remove old package versions while keeping the currently installed packages.",
                                 command: "sudo paccache -r"
                             },
                             {
-                                key: "journal", label: "JOURNAL", action: "7 DAYS", title: "VACUUM JOURNAL?",
+                                key: "journal", label: "Journal", action: "7 days", title: "Vacuum journal?",
                                 message: "Keep only the last 7 days of system logs.",
                                 command: "sudo journalctl --vacuum-time=7d"
                             },
                             {
-                                key: "flatpak", label: "FLATPAK UNUSED", action: "CLEAN", title: "REMOVE UNUSED FLATPAKS?",
+                                key: "flatpak", label: "Flatpak unused", action: "Clean", title: "Remove unused Flatpaks?",
                                 message: "This removes unused Flatpak runtimes and packages.",
                                 command: "flatpak uninstall --unused"
                             }
@@ -416,7 +416,7 @@ Item {
         Text {
             anchors.centerIn: parent; text: parent.label
             color: parent.accent ? Theme.accent : Theme.textDim
-            font.family: Theme.fontFamily; font.pixelSize: 11; font.bold: true; font.letterSpacing: .5
+            font.family: Theme.fontFamily; font.pixelSize: 11; font.bold: true
         }
 
         MouseArea {
@@ -450,7 +450,6 @@ Item {
             font.family: Theme.fontFamily
             font.pixelSize: 13
             font.bold: true
-            font.letterSpacing: 2
         }
 
         Row {
@@ -473,7 +472,6 @@ Item {
                 font.family: Theme.fontFamily
                 font.pixelSize: 12
                 font.bold: true
-                font.letterSpacing: 1
                 anchors.verticalCenter: parent.verticalCenter
             }
         }

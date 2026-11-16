@@ -14,8 +14,8 @@ Item {
     property real marginTop: 0
     property real marginBottom: 0
     property real brightnessValue: 0.6
-    property real nightlightValue: 0.5
-    property bool nightlightEnabled: false
+    readonly property real nightlightValue: (NightState.temp - 1500) / 5000
+    readonly property bool nightlightEnabled: NightState.on
     property real sliderMarginRight: 10
     property real labelWidth: 96
     readonly property string stateDir: Quickshell.env("HOME") + "/.config/quickshell/state"
@@ -43,63 +43,10 @@ Item {
         brightnessSet.running = true
     }
 
-    Process { id: nightlightProcess }
-
-    function nightlightTemperature(value) { return Math.round(2500 + value * 4000) }
-
-    function startNightlight(value, delay) {
-        const temp = nightlightTemperature(value)
-        nightlightProcess.command = [
-            "sh", "-c",
-            "pkill -x gammastep 2>/dev/null; " +
-            "sleep " + delay + "; " +
-            "nohup gammastep -O " + temp + " >/dev/null 2>&1 &"
-        ]
-        nightlightProcess.running = true
-    }
-
-    function nightlightOn() { nightlightEnabled = true; startNightlight(nightlightValue, "0.05") }
-
-    function nightlightOff() {
-        nightlightEnabled = false
-        nightlightProcess.command = ["pkill", "-x", "gammastep"]
-        nightlightProcess.running = true
-    }
-
-    function commitNightlight(value) {
-        nightlightValue = value
-        nightlightSaveTimer.restart()
-        if (nightlightEnabled) startNightlight(value, "0.03")
-    }
-
-    FileView {
-        id: nightlightFile
-        path: Quickshell.dataDir + "/nightlight.json"
-        blockLoading: true
-    }
-
-    function loadNightlight() {
-        try {
-            const saved = JSON.parse(nightlightFile.text())
-            if (typeof saved.value === "number") nightlightValue = saved.value
-        } catch (error) {}
-    }
-
-    Timer {
-        id: nightlightSaveTimer
-        interval: 300
-        onTriggered: {
-            nightlightFile.setText(JSON.stringify({ value: page.nightlightValue }))
-        }
-    }
-
-    Process {
-        id: nightlightCheck
-        command: ["pgrep", "-x", "gammastep"]
-        onExited: exitCode => {
-            page.nightlightEnabled = exitCode === 0
-        }
-    }
+    // Night light is shared with the moon icon in the bar (NightState -> hypr/bin/night -> hyprsunset).
+    function nightlightOn() { NightState.setOn(true) }
+    function nightlightOff() { NightState.setOn(false) }
+    function commitNightlight(value) { NightState.set(Math.round((1500 + value * 5000) / 50) * 50) }
 
     Process {
         id: stateDirProcess
@@ -501,8 +448,8 @@ Item {
             spacing: 14
 
             Text {
-                text: "DISPLAY"; color: Theme.text
-                font.family: Theme.fontFamily; font.pixelSize: 19; font.letterSpacing: 3
+                text: "Display"; color: Theme.text
+                font.family: Theme.fontFamily; font.pixelSize: 19
             }
 
             Rectangle { width: parent.width; height: 1; color: Theme.border }
@@ -521,7 +468,7 @@ Item {
 
                 Text {
                     width: page.labelWidth; anchors.verticalCenter: parent.verticalCenter
-                    text: "BRIGHTNESS"; color: Theme.text
+                    text: "Brightness"; color: Theme.text
                     font.family: Theme.fontFamily; font.pixelSize: 15
                 }
 
@@ -553,7 +500,7 @@ Item {
 
                 Text {
                     width: page.labelWidth; anchors.verticalCenter: parent.verticalCenter
-                    text: "NIGHTLIGHT"; color: page.nightlightEnabled ? Theme.text : Theme.text
+                    text: "Night light"; color: page.nightlightEnabled ? Theme.text : Theme.text
                     font.family: Theme.fontFamily; font.pixelSize: 15
                 }
 
@@ -624,9 +571,9 @@ Item {
 
                                         Text {
                                             anchors.centerIn: parent
-                                            text: card.main ? "MAIN" : "SET MAIN"
+                                            text: card.main ? "Main" : "Set main"
                                             color: card.main ? Theme.accent : Theme.text
-                                            font.family: Theme.fontFamily; font.pixelSize: 11; font.bold: true; font.letterSpacing: 1
+                                            font.family: Theme.fontFamily; font.pixelSize: 11; font.bold: true
                                         }
 
                                         MouseArea {
@@ -647,9 +594,9 @@ Item {
 
                                         Text {
                                             anchors.centerIn: parent
-                                            text: card.off ? "ENABLE" : "DISABLE"
+                                            text: card.off ? "Enable" : "Disable"
                                             color: Theme.text
-                                            font.family: Theme.fontFamily; font.pixelSize: 11; font.bold: true; font.letterSpacing: 1
+                                            font.family: Theme.fontFamily; font.pixelSize: 11; font.bold: true
                                         }
 
                                         MouseArea {
@@ -669,7 +616,7 @@ Item {
                                 Text {
                                     id: scaleLabel
                                     width: 36; anchors.verticalCenter: parent.verticalCenter
-                                    text: "SCALE"; color: Theme.textDim
+                                    text: "Scale"; color: Theme.textDim
                                     font.family: Theme.fontFamily; font.pixelSize: 11
                                 }
 
@@ -697,7 +644,7 @@ Item {
                                 Text {
                                     width: 36; height: 28
                                     verticalAlignment: Text.AlignVCenter
-                                    text: "RES"; color: Theme.textDim
+                                    text: "Res"; color: Theme.textDim
                                     font.family: Theme.fontFamily; font.pixelSize: 11
                                 }
 
@@ -792,8 +739,8 @@ Item {
                 border.color: resetMouse.containsMouse ? Theme.accent : Theme.border
 
                 Text {
-                    anchors.centerIn: parent; text: "RESET TO CONFIG"; color: Theme.text
-                    font.family: Theme.fontFamily; font.pixelSize: 12; font.bold: true; font.letterSpacing: 1
+                    anchors.centerIn: parent; text: "Reset to config"; color: Theme.text
+                    font.family: Theme.fontFamily; font.pixelSize: 12; font.bold: true
                 }
 
                 MouseArea {
@@ -810,7 +757,6 @@ Item {
         stateDirProcess.running = true
         loadState()
         brightnessGet.running = true
-        loadNightlight()
-        nightlightCheck.running = true
+        NightState.refresh()
     }
 }

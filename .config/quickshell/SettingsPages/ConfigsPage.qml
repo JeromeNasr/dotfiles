@@ -40,7 +40,6 @@ Item {
             font.family: Theme.fontFamily
             font.pixelSize: 13
             font.bold: true
-            font.letterSpacing: 2
         }
 
         Row {
@@ -58,12 +57,11 @@ Item {
             }
 
             Text {
-                text: "EDIT " + path.split("/").pop().toUpperCase()
+                text: "Edit " + path.split("/").pop()
                 color: Theme.textDim
                 font.family: Theme.fontFamily
                 font.pixelSize: 12
                 font.bold: true
-                font.letterSpacing: 1
                 anchors.verticalCenter: parent.verticalCenter
             }
         }
@@ -121,11 +119,10 @@ Item {
             spacing: 14
 
             Text {
-                text: "CONFIGS"
+                text: "Configs"
                 color: Theme.text
                 font.family: Theme.fontFamily
                 font.pixelSize: 19
-                font.letterSpacing: 3
             }
 
             Rectangle {
@@ -135,11 +132,10 @@ Item {
             }
 
             Text {
-                text: "HYPRLAND"
+                text: "Hyprland"
                 color: Theme.text
                 font.family: Theme.fontFamily
                 font.pixelSize: 16
-                font.letterSpacing: 3
             }
 
             Rectangle {
@@ -152,36 +148,35 @@ Item {
                 width: parent.width
                 spacing: page.sectionSpacing
                 ConfigButton {
-                    label: "PROGRAMS - AUTOSTART - INPUT"
+                    label: "Programs - autostart - input"
                     path: "~/.config/hypr/hyprland.lua"
                 }
                 ConfigButton {
-                    label: "MONITORS - WORKSPACES"
+                    label: "Monitors - workspaces"
                     path: "~/.config/hypr/monitors.lua"
                 }
                 ConfigButton {
-                    label: "LOOK AND FEEL"
+                    label: "Look and feel"
                     path: "~/.config/hypr/look.lua"
                 }
                 ConfigButton {
-                    label: "KEYBINDS"
+                    label: "Keybinds"
                     path: "~/.config/hypr/keybinds.lua"
                 }
                 ConfigButton {
-                    label: "RULES"
+                    label: "Rules"
                     path: "~/.config/hypr/rules.lua"
                 }
                 ConfigButton {
-                    label: "LOCK SCREEN"
+                    label: "Lock screen"
                     path: "~/.config/hypr/hyprlock.conf"
                 }
             }
             Text {
-                text: "ROFI"
+                text: "Rofi"
                 color: Theme.text
                 font.family: Theme.fontFamily
                 font.pixelSize: 16
-                font.letterSpacing: 3
             }
             Rectangle {
                 width: parent.width
@@ -192,7 +187,7 @@ Item {
                 width: parent.width
                 spacing: page.sectionSpacing
                 ConfigButton {
-                    label: "CONFIG"
+                    label: "Config"
                     path: "~/.config/rofi/config.rasi"
                 }
             }

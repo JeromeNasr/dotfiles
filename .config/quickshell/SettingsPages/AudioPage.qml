@@ -59,8 +59,8 @@ Item {
             spacing: 14
 
             Text {
-                text: "AUDIO"; color: Theme.text
-                font.family: Theme.fontFamily; font.pixelSize: 19; font.letterSpacing: 3
+                text: "Audio"; color: Theme.text
+                font.family: Theme.fontFamily; font.pixelSize: 19
             }
 
             Rectangle { width: parent.width; height: 1; color: Theme.border }
@@ -85,8 +85,8 @@ Item {
                 }
                 Text {
                     width: 76; anchors.verticalCenter: parent.verticalCenter
-                    text: "OUTPUT"; color: Theme.text
-                    font.family: Theme.fontFamily; font.pixelSize: 15; font.letterSpacing: 2
+                    text: "Output"; color: Theme.text
+                    font.family: Theme.fontFamily; font.pixelSize: 15
                 }
                 Slider {
                     width: parent.width - 28 - 76 - 8 - page.sliderMarginRight
@@ -117,7 +117,7 @@ Item {
                             }
                             Text {
                                 width: parent.width - 28; anchors.verticalCenter: parent.verticalCenter
-                                text: (output?.description || output?.nickname || output?.name || "Unknown output").toUpperCase()
+                                text: (output?.description || output?.nickname || output?.name || "Unknown output")
                                 color: active ? Theme.accent : Theme.text
                                 font.family: Theme.fontFamily; font.pixelSize: 10; elide: Text.ElideRight
                             }
@@ -131,8 +131,8 @@ Item {
                 }
                 Text {
                     visible: page.outputSinks.length === 0
-                    text: "NO AUDIO OUTPUTS"; color: Theme.textFaint; leftPadding: 4
-                    font.family: Theme.fontFamily; font.pixelSize: 10; font.letterSpacing: 1.5
+                    text: "No audio outputs"; color: Theme.textFaint; leftPadding: 4
+                    font.family: Theme.fontFamily; font.pixelSize: 10
                 }
             }
 
@@ -156,8 +156,8 @@ Item {
                 }
                 Text {
                     width: 76; anchors.verticalCenter: parent.verticalCenter
-                    text: "INPUT"; color: Theme.text
-                    font.family: Theme.fontFamily; font.pixelSize: 15; font.letterSpacing: 2
+                    text: "Input"; color: Theme.text
+                    font.family: Theme.fontFamily; font.pixelSize: 15
                 }
                 Slider {
                     width: parent.width - 28 - 76 - 8 - page.sliderMarginRight
@@ -188,7 +188,7 @@ Item {
                             }
                             Text {
                                 width: parent.width - 28; anchors.verticalCenter: parent.verticalCenter
-                                text: (input?.description || input?.nickname || input?.name || "Unknown input").toUpperCase()
+                                text: (input?.description || input?.nickname || input?.name || "Unknown input")
                                 color: active ? Theme.accent : Theme.text
                                 font.family: Theme.fontFamily; font.pixelSize: 10; elide: Text.ElideRight
                             }
@@ -202,8 +202,8 @@ Item {
                 }
                 Text {
                     visible: page.inputSources.length === 0
-                    text: "NO AUDIO INPUTS"; color: Theme.textFaint; leftPadding: 4
-                    font.family: Theme.fontFamily; font.pixelSize: 10; font.letterSpacing: 1.5
+                    text: "No audio inputs"; color: Theme.textFaint; leftPadding: 4
+                    font.family: Theme.fontFamily; font.pixelSize: 10
                 }
             }
 
@@ -213,8 +213,8 @@ Item {
                 width: parent.width; spacing: 10
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "PER-APP VOLUME"; color: Theme.text
-                    font.family: Theme.fontFamily; font.pixelSize: 14; font.letterSpacing: 2
+                    text: "Per-app volume"; color: Theme.text
+                    font.family: Theme.fontFamily; font.pixelSize: 14
                 }
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
@@ -256,7 +256,7 @@ Item {
                             }
                             Text {
                                 width: 82; anchors.verticalCenter: parent.verticalCenter
-                                text: (stream?.description || stream?.name || "Unknown app").toUpperCase()
+                                text: (stream?.description || stream?.name || "Unknown app")
                                 color: streamMuted ? Theme.textDim : Theme.text
                                 font.family: Theme.fontFamily; font.pixelSize: 11; elide: Text.ElideRight
                             }
@@ -271,8 +271,8 @@ Item {
                 }
                 Text {
                     visible: page.appStreams.length === 0
-                    text: "NO ACTIVE AUDIO STREAMS"; color: Theme.textDim; leftPadding: 4
-                    font.family: Theme.fontFamily; font.pixelSize: 10; font.letterSpacing: 1.5
+                    text: "No active audio streams"; color: Theme.textDim; leftPadding: 4
+                    font.family: Theme.fontFamily; font.pixelSize: 10
                 }
             }
         }

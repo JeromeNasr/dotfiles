@@ -53,6 +53,65 @@ Item {
         }
     }
 
+    // ---- live preview data (built by ~/.local/bin/rice-theme-previews) ----
+    property var previews: ({})
+    FileView {
+        path: Quickshell.env("HOME") + "/.cache/43pr/theme-previews.json"
+        watchChanges: true
+        printErrors: false
+        onFileChanged: reload()
+        onLoaded: { try { page.previews = JSON.parse(text()) } catch (e) {} }
+    }
+    Component.onCompleted: Quickshell.execDetached(["/bin/sh", "-c", "\"$HOME/.local/bin/rice-theme-previews\""])
+    Component.onDestruction: { Theme.previewPalette = null; Theme.fontPreview = "" }
+
+    Timer {
+        id: previewTimer
+        interval: 90                       // debounce so sweeping the mouse doesn't thrash
+        property var pending: null
+        onTriggered: Theme.previewPalette = pending
+    }
+    function previewTheme(key) {
+        previewTimer.pending = key && page.previews[key] ? page.previews[key] : null
+        previewTimer.restart()
+    }
+
+    function setFont(family) {
+        Theme.fontPreview = ""
+        Quickshell.execDetached(["/bin/sh", "-c", "\"$HOME/.local/bin/rice-font\" set \"$1\"", "sh", family])
+    }
+
+    component FontButton: Rectangle {
+        required property string family
+        required property string label
+        width: (parent.width - (parent.columns - 1) * parent.spacing) / parent.columns
+        height: 42
+        radius: Theme.radius
+        color: "#00000000"
+        border.width: 1
+        border.color: Theme.fontFamily === family ? Theme.accent : Theme.border
+        Behavior on border.color { ColorAnimation { duration: 120 } }
+
+        Text {
+            anchors.fill: parent
+            anchors.margins: 6
+            text: label + "  Aa 0O"
+            color: Theme.fontFamily === family ? Theme.accent : Theme.textDim
+            font.family: family
+            font.pixelSize: 12
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
+        }
+        MouseArea {
+            anchors.fill: parent
+            hoverEnabled: true
+            onEntered: { parent.color = Theme.alpha(Theme.accent, 0.08); Theme.fontPreview = family }
+            onExited:  { parent.color = "#00000000"; Theme.fontPreview = "" }
+            onClicked: page.setFont(family)
+        }
+    }
+
     Timer {
         id: reloadTimer
         interval: 700
@@ -72,7 +131,7 @@ Item {
     component ToggleButton: Rectangle {
         required property string label
         required property bool checked
-        property string valueText: checked ? "ON" : "OFF"
+        property string valueText: checked ? "On" : "Off"
         signal toggled()
 
         width: parent.width
@@ -91,7 +150,6 @@ Item {
             font.family: Theme.fontFamily
             font.pixelSize: 11
             font.bold: true
-            font.letterSpacing: 1
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
             wrapMode: Text.WordWrap
@@ -137,7 +195,6 @@ Item {
             font.family: Theme.fontFamily
             font.pixelSize: 13
             font.bold: true
-            font.letterSpacing: 2
         }
 
         Row {
@@ -155,12 +212,11 @@ Item {
             }
 
             Text {
-                text: "EDIT " + path.split("/").pop().toUpperCase()
+                text: "Edit " + path.split("/").pop()
                 color: Theme.textDim
                 font.family: Theme.fontFamily
                 font.pixelSize: 12
                 font.bold: true
-                font.letterSpacing: 1
                 anchors.verticalCenter: parent.verticalCenter
             }
         }
@@ -186,16 +242,22 @@ Item {
     component ThemeButton: Rectangle {
         required property string label
         required property string command
+        readonly property string key: command === "default" ? "default" : command.replace("preset ", "")
+        readonly property var sw: (page.previews[key] && page.previews[key]._swatch) ? page.previews[key]._swatch : []
 
         width: (parent.width - (parent.columns - 1) * parent.spacing) / parent.columns
-        height: 42
+        height: 58
         radius: Theme.radius
         color: "#00000000"
         border.width: 1
         border.color: Theme.border
+        Behavior on border.color { ColorAnimation { duration: 120 } }
 
         Text {
-            anchors.fill: parent
+            anchors.top: parent.top
+            anchors.topMargin: 6
+            anchors.left: parent.left
+            anchors.right: parent.right
             anchors.leftMargin: 6
             anchors.rightMargin: 6
             text: label
@@ -203,12 +265,24 @@ Item {
             font.family: Theme.fontFamily
             font.pixelSize: 11
             font.bold: true
-            font.letterSpacing: 1
             horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-            wrapMode: Text.WordWrap
-            maximumLineCount: 2
             elide: Text.ElideRight
+        }
+
+        Row {
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: 8
+            anchors.horizontalCenter: parent.horizontalCenter
+            spacing: 4
+            Repeater {
+                model: sw
+                Rectangle {
+                    width: 14; height: 14; radius: 7
+                    color: modelData
+                    border.width: 1
+                    border.color: Qt.rgba(1, 1, 1, 0.18)
+                }
+            }
         }
 
         MouseArea {
@@ -218,14 +292,16 @@ Item {
             onEntered: {
                 parent.color = Theme.alpha(Theme.accent, 0.08)
                 parent.border.color = Theme.accent
+                page.previewTheme(parent.key)
             }
 
             onExited: {
                 parent.color = "#00000000"
                 parent.border.color = Theme.border
+                page.previewTheme("")
             }
 
-            onClicked: page.runTheme(command)
+            onClicked: { page.previewTheme(""); page.runTheme(command) }
         }
     }
 
@@ -264,11 +340,10 @@ Item {
             spacing: 14
 
             Text {
-                text: "THEMES"
+                text: "Themes"
                 color: Theme.text
                 font.family: Theme.fontFamily
                 font.pixelSize: 19
-                font.letterSpacing: 3
             }
 
             Rectangle {
@@ -287,16 +362,16 @@ Item {
 
                     ToggleButton {
                         width: (parent.width - parent.spacing) / 2
-                        label: "COLOR GENERATION"
+                        label: "Color generation"
                         checked: page.colorGen
                         onToggled: page.setColorGen(!page.colorGen)
                     }
 
                     ToggleButton {
                         width: (parent.width - parent.spacing) / 2
-                        label: "MODE"
+                        label: "Mode"
                         checked: true
-                        valueText: page.darkMode ? "DARK" : "LIGHT"
+                        valueText: page.darkMode ? "Dark" : "Light"
                         onToggled: page.toggleMode()
                     }
                 }
@@ -307,78 +382,100 @@ Item {
                     spacing: page.sectionSpacing
 
                     ThemeButton {
-                        label: "DEFAULT"
+                        label: "Default"
                         command: "default"
                     }
                     ThemeButton {
-                        label: "WHITE"
+                        label: "White"
                         command: "preset white"
                     }
                     ThemeButton {
-                        label: "METAL"
+                        label: "Metal"
                         command: "preset metal"
                     }
                     ThemeButton {
-                        label: "SLATE"
+                        label: "Slate"
                         command: "preset slate"
                     }
                     ThemeButton {
-                        label: "LIGHT GRAY"
+                        label: "Light Gray"
                         command: "preset light-gray"
                     }
                     ThemeButton {
-                        label: "BEIGE"
+                        label: "Beige"
                         command: "preset beige"
                     }
                     ThemeButton {
-                        label: "SILVER"
+                        label: "Silver"
                         command: "preset silver"
                     }
                     ThemeButton {
-                        label: "GOLD"
+                        label: "Gold"
                         command: "preset gold"
                     }
                     ThemeButton {
-                        label: "NORD"
+                        label: "Nord"
                         command: "preset nord"
                     }
                     ThemeButton {
-                        label: "TOKYO NIGHT"
+                        label: "Tokyo Night"
                         command: "preset tokyo-night"
                     }
                     ThemeButton {
-                        label: "CATPPUCCIN MOCHA"
+                        label: "Catppuccin Mocha"
                         command: "preset catppuccin-mocha"
                     }
                     ThemeButton {
-                        label: "EVERFOREST DARK"
+                        label: "Everforest Dark"
                         command: "preset everforest-dark"
                     }
                     ThemeButton {
-                        label: "DRACULA"
+                        label: "Dracula"
                         command: "preset dracula"
                     }
                     ThemeButton {
-                        label: "ONE DARK"
+                        label: "One Dark"
                         command: "preset one-dark"
                     }
                     ThemeButton {
-                        label: "KANAGAWA"
+                        label: "Kanagawa"
                         command: "preset kanagawa"
                     }
                     ThemeButton {
-                        label: "ROSE PINE"
+                        label: "Rose Pine"
                         command: "preset rose-pine"
                     }
                     ThemeButton {
-                        label: "RED"
+                        label: "Red"
                         command: "preset red"
                     }
                     ThemeButton {
-                        label: "MATRIX"
+                        label: "Matrix"
                         command: "preset matrix"
                     }
                 }
+            }
+
+            Text {
+                text: "FONT  (hover to preview, click to apply)"
+                color: Theme.textDim
+                font.family: Theme.fontFamily
+                font.pixelSize: 12
+            }
+
+            Grid {
+                width: parent.width
+                columns: 2
+                spacing: page.sectionSpacing
+
+                FontButton { label: "JetBrains Mono"; family: "JetBrainsMono Nerd Font" }
+                FontButton { label: "Fira Code";       family: "FiraCode Nerd Font" }
+                FontButton { label: "Cascadia";        family: "CaskaydiaCove Nerd Font" }
+                FontButton { label: "Geist Mono";      family: "GeistMono Nerd Font" }
+                FontButton { label: "Victor Mono";     family: "VictorMono Nerd Font" }
+                FontButton { label: "Monaspace Neon";  family: "MonaspiceNe Nerd Font" }
+                FontButton { label: "Iosevka";         family: "Iosevka Nerd Font" }
+                FontButton { label: "Hack";            family: "Hack" }
             }
 
             Column {
@@ -386,7 +483,7 @@ Item {
                 spacing: page.sectionSpacing
 
                 ConfigButton {
-                    label: "THEME"
+                    label: "Theme"
                     path: "~/.config/quickshell/Theme.qml"
                 }
             }

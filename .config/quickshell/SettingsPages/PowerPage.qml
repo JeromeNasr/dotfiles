@@ -20,9 +20,9 @@ Item {
     property string batteryStatus: ""
 
     readonly property var profiles: [
-        { id: "power-saver", label: "POWER SAVER", icon: "\uf06c", desc: "Quiet, longer battery" },
-        { id: "balanced",    label: "BALANCED",    icon: "\uf24e", desc: "Default behaviour" },
-        { id: "performance", label: "PERFORMANCE", icon: "\uf0e7", desc: "Maximum speed" }
+        { id: "power-saver", label: "Power saver", icon: "\uf06c", desc: "Quiet, longer battery" },
+        { id: "balanced",    label: "Balanced",    icon: "\uf24e", desc: "Default behaviour" },
+        { id: "performance", label: "Performance", icon: "\uf0e7", desc: "Maximum speed" }
     ]
 
     function profileLabel(id) {
@@ -58,11 +58,48 @@ Item {
         onExited: exitCode => refreshTimer.restart()
     }
 
+    // ---- power limit (slider): 100 = full speed ... 0 = minimum (lowest possible power) ----
+    property int limitValue: 100        // saved slider position 0..100
+    property int shownValue: 100        // follows the handle while dragging
+    property int capPct: 100            // max_perf_pct currently applied
+    property bool turboOff: false
+    property bool canWrite: true        // false until the one-time sysfs permission setup is done
+
+    function limitText(v) {
+        if (v === 0) return "MINIMUM"
+        return (15 + Math.floor(v * 85 / 100)) + "% CPU" + (v < 70 ? " · no turbo" : "")
+    }
+
+    Process {
+        id: limitGet
+        command: ["power-limit", "status"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const p = text.trim().split(/\s+/)
+                if (p.length >= 5) {
+                    page.limitValue = parseInt(p[0]); page.shownValue = page.limitValue
+                    page.capPct = parseInt(p[1]); page.turboOff = p[2] === "1"
+                    page.canWrite = p[3] === "1"
+                    page.currentProfile = p[4]
+                }
+            }
+        }
+    }
+    Process {
+        id: limitSet
+        onExited: exitCode => refreshTimer.restart()
+    }
+    function setLimit(v) {
+        v = Math.max(0, Math.min(100, Math.round(v)))
+        page.limitValue = v; page.shownValue = v
+        limitSet.command = ["power-limit", String(v)]
+        limitSet.running = true
+    }
+
+    // picking a profile card moves the slider to that profile's preset
     function setProfile(id) {
-        if (profileSet.running) return
         page.currentProfile = id
-        profileSet.command = ["powerprofilesctl", "set", id]
-        profileSet.running = true
+        page.setLimit(id === "power-saver" ? 30 : id === "balanced" ? 65 : 100)
     }
     Process {
         id: batteryGet
@@ -88,6 +125,7 @@ Item {
     }
 
     function refresh() {
+        limitGet.running = true
         profileGet.running = true
         batteryGet.running = true
     }
@@ -128,8 +166,8 @@ Item {
             spacing: 14
 
             Text {
-                text: "POWER"; color: Theme.text
-                font.family: Theme.fontFamily; font.pixelSize: 19; font.letterSpacing: 3
+                text: "Power"; color: Theme.text
+                font.family: Theme.fontFamily; font.pixelSize: 19
             }
 
             Rectangle { width: parent.width; height: 1; color: Theme.border }
@@ -139,8 +177,8 @@ Item {
                 bottomPadding: 6
 
                 Text {
-                    text: "POWER PROFILE"; color: Theme.text
-                    font.family: Theme.fontFamily; font.pixelSize: 15; font.bold: true; font.letterSpacing: 2
+                    text: "Power profile"; color: Theme.text
+                    font.family: Theme.fontFamily; font.pixelSize: 15; font.bold: true
                 }
 
                 Row {
@@ -186,7 +224,7 @@ Item {
                                 Text {
                                     anchors.horizontalCenter: parent.horizontalCenter
                                     text: card.modelData.label; color: Theme.text
-                                    font.family: Theme.fontFamily; font.pixelSize: 12; font.bold: true; font.letterSpacing: 1
+                                    font.family: Theme.fontFamily; font.pixelSize: 12; font.bold: true
                                 }
 
                                 Text {
@@ -210,6 +248,78 @@ Item {
                 }
             }
 
+
+            // ---- power limit slider ----
+            Column {
+                width: parent.width; spacing: 8
+                topPadding: 4; bottomPadding: 6
+
+                Text {
+                    text: "Power limit"; color: Theme.text
+                    font.family: Theme.fontFamily; font.pixelSize: 15; font.bold: true
+                }
+
+                Row {
+                    id: limitRow
+                    width: parent.width; height: 56; spacing: 14
+
+                    Slider {
+                        width: parent.width - minBtn.width - parent.spacing
+                        height: 56; anchors.verticalCenter: parent.verticalCenter
+                        label: ""; icon: "\uf0e7"
+                        value: page.shownValue / 100
+                        accentColor: page.limitValue === 0 ? Theme.danger : Theme.accent2
+                        displayText: page.limitText(page.shownValue)
+                        onMoved: v => page.shownValue = Math.round(v * 100)
+                        onCommitted: v => page.setLimit(v * 100)
+                    }
+
+                    Rectangle {
+                        id: minBtn
+                        readonly property bool on: page.limitValue === 0
+                        property bool hovered: false
+                        width: 150; height: 46; radius: Theme.radius
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: on ? Theme.alpha(Theme.danger, 0.12) : hovered ? Theme.alpha(Theme.accent, 0.08) : "#00000000"
+                        border.width: 1
+                        border.color: on ? Theme.danger : hovered ? Theme.accent : Theme.border
+                        Column {
+                            anchors.centerIn: parent; spacing: 2
+                            Text {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                text: "Minimum"; color: minBtn.on ? Theme.danger : Theme.text
+                                font.family: Theme.fontFamily; font.pixelSize: 12; font.bold: true
+                            }
+                            Text {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                text: "lowest possible power"; color: Theme.textDim
+                                font.family: Theme.fontFamily; font.pixelSize: 9
+                            }
+                        }
+                        MouseArea {
+                            anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                            onEntered: minBtn.hovered = true
+                            onExited: minBtn.hovered = false
+                            onClicked: page.setLimit(minBtn.on ? 100 : 0)
+                        }
+                    }
+                }
+
+                Text {
+                    width: parent.width; wrapMode: Text.WordWrap
+                    visible: !page.canWrite
+                    color: Theme.textDim
+                    font.family: Theme.fontFamily; font.pixelSize: 10
+                    text: "CPU speed cap needs a one-time setup (only the power profile changes for now). Run:\nsudo install -m644 ~/dotfiles/dotfiles/.config/hypr/tmpfiles/power-limit.conf /etc/tmpfiles.d/ && sudo systemd-tmpfiles --create /etc/tmpfiles.d/power-limit.conf"
+                }
+                Text {
+                    visible: page.canWrite
+                    color: Theme.textDim
+                    font.family: Theme.fontFamily; font.pixelSize: 10
+                    text: "CPU capped at " + page.capPct + "%" + (page.turboOff ? " · turbo boost off" : "") + " · profile " + page.currentProfile
+                }
+            }
+
             Rectangle {
                 visible: page.hasBattery
                 width: parent.width; height: 100; radius: Theme.radius
@@ -224,19 +334,19 @@ Item {
                         spacing: 10
 
                         Text {
-                            text: "BATTERY"; color: Theme.text
+                            text: "Battery"; color: Theme.text
                             font.family: Theme.fontFamily; font.pixelSize: 14; font.bold: true
                         }
 
                         Text {
-                            text: page.batteryStatus.toUpperCase()
+                            text: page.batteryStatus
                             color: Theme.textDim
                             font.family: Theme.fontFamily; font.pixelSize: 12
                         }
 
                         Text {
                             visible: page.batteryStatus === "Charging"
-                            text: "CHARGING"; color: Theme.accent2
+                            text: "Charging"; color: Theme.accent2
                             font.family: Theme.fontFamily; font.pixelSize: 10
                         }
                     }
@@ -247,7 +357,7 @@ Item {
                         Text {
                             id: levelLabel
                             anchors.left: parent.left
-                            text: "LEVEL"
+                            text: "Level"
                             color: Theme.textDim
                             font.family: Theme.fontFamily; font.pixelSize: 11
                         }
@@ -276,6 +386,7 @@ Item {
     }
 
     Component.onCompleted: {
+        limitGet.running = true
         profileList.running = true
         profileGet.running = true
         batteryGet.running = true

@@ -288,53 +288,9 @@ PanelWindow {
         Rectangle {
             anchors.fill: parent
             color: Theme.bg
-            radius: Theme.radius
-            border.color: Theme.accent
+            radius: 14
+            border.color: Theme.alpha(Theme.text, 0.10)
             border.width: 1
-            Rectangle {
-                width: 40
-                height: 2
-                color: Theme.accent2
-                anchors {
-                    top: parent.top
-                    left: parent.left
-                    margins: 14
-                }
-            }
-
-            Rectangle {
-                width: 2
-                height: 40
-                color: Theme.accent2
-                anchors {
-                    top: parent.top
-                    left: parent.left
-                    margins: 14
-                }
-            }
-
-            Rectangle {
-                width: 40
-                height: 2
-                color: Theme.accent2
-                anchors {
-                    bottom: parent.bottom
-                    right: parent.right
-                    margins: 14
-                }
-            }
-
-            Rectangle {
-                width: 2
-                height: 40
-                color: Theme.accent2
-                anchors {
-                    bottom: parent.bottom
-                    right: parent.right
-                    margins: 14
-                }
-            }
-
             Item {
                 id: positionHandle
                 width: 140
@@ -499,12 +455,12 @@ PanelWindow {
                     spacing: 12
 
                     Text {
-                        text: " SETTINGS"
+                        text: "Settings"
                         color: Theme.text
                         font.family: Theme.fontFamily
-                        font.pixelSize: 19
-                        font.bold: true
-                        font.letterSpacing: 4
+                        font.pixelSize: 18
+                        font.weight: Font.DemiBold
+                        leftPadding: 12
                     }
 
                     Rectangle {
@@ -545,22 +501,9 @@ PanelWindow {
                                     width: sidebar.width
                                     height: 38
                                     radius: Theme.radius
-                                    color: root.selectedIndex === index
-                                        ? Theme.alpha(Theme.accent, 0.12)
-                                        : "transparent"
-                                    border.width: root.selectedIndex === index ? 1 : 0
-                                    border.color: Theme.accent
-
-                                    Rectangle {
-                                        visible: root.selectedIndex === index
-                                        width: 3
-                                        height: parent.height - 10
-                                        anchors {
-                                            verticalCenter: parent.verticalCenter
-                                            left: parent.left
-                                        }
-                                        color: Theme.accent2
-                                    }
+                                    color: root.selectedIndex === index ? Theme.alpha(Theme.text, 0.10)
+                                         : navMa.containsMouse ? Theme.alpha(Theme.text, 0.05) : "transparent"
+                                    Behavior on color { ColorAnimation { duration: 120 } }
 
                                     Row {
                                         anchors.verticalCenter: parent.verticalCenter
@@ -595,7 +538,9 @@ PanelWindow {
                                     }
 
                                     MouseArea {
+                                        id: navMa
                                         anchors.fill: parent
+                                        hoverEnabled: true
                                         onClicked: root.selectedIndex = index
                                     }
                                 }

@@ -138,7 +138,6 @@ Item {
             color: Theme.textDim
             font.family: page.mono
             font.pixelSize: 10
-            font.letterSpacing: 2
         }
 
         Text {
@@ -172,7 +171,6 @@ Item {
                 color: Theme.textDim
                 font.family: page.mono
                 font.pixelSize: page.hardwareLabelSize
-                font.letterSpacing: 2
                 anchors.verticalCenter: parent.verticalCenter
             }
 
@@ -415,11 +413,10 @@ Item {
             spacing: 14
 
             Text {
-                text: "SYSTEM"
+                text: "System"
                 color: Theme.text
                 font.family: Theme.fontFamily
                 font.pixelSize: 19
-                font.letterSpacing: 3
             }
 
             Rectangle {
@@ -455,7 +452,7 @@ Item {
                     spacing: 14
                     InfoRow { icon: "󰣇"; label: "OS"; value: page.os }
                     InfoRow { icon: "󱂬"; label: "WM"; value: page.wm }
-                    InfoRow { icon: "󰔛"; label: "UPTIME"; value: page.uptime }
+                    InfoRow { icon: "󰔛"; label: "Uptime"; value: page.uptime }
                 }
             }
 
@@ -492,6 +489,5 @@ Item {
         color: Theme.text
         font.family: page.mono
         font.pixelSize: 18
-        font.letterSpacing: 1
     }
 }

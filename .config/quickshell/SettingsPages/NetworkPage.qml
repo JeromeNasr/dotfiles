@@ -263,8 +263,8 @@ Item {
         anchors.topMargin: page.marginTop; anchors.bottomMargin: page.marginBottom
         spacing: 14
         Text {
-            text: "NETWORK"; color: Theme.text
-            font.family: page.monoFont; font.pixelSize: 19; font.letterSpacing: 3
+            text: "Network"; color: Theme.text
+            font.family: page.monoFont; font.pixelSize: 19
         }
         Rectangle { width: parent.width; height: 1; color: Theme.border }
         Column {
@@ -285,12 +285,11 @@ Item {
 
                 Text {
                     anchors.centerIn: parent
-                    text: page.wifiEnabled ? "WI-FI ON" : "WI-FI OFF"
+                    text: page.wifiEnabled ? "Wi-Fi on" : "Wi-Fi off"
                     color: page.wifiEnabled ? Theme.accent : Theme.textFaint
                     font.family: page.monoFont
                     font.pixelSize: 10
                     font.bold: true
-                    font.letterSpacing: 1
                 }
 
                 MouseArea {
@@ -307,8 +306,8 @@ Item {
 
                 Repeater {
                     model: [
-                        { icon: page.icDown, label: "DOWNLOAD", value: page.downSpeed, down: true },
-                        { icon: page.icUp,   label: "UPLOAD",   value: page.upSpeed,   down: false }
+                        { icon: page.icDown, label: "Download", value: page.downSpeed, down: true },
+                        { icon: page.icUp,   label: "Upload",   value: page.upSpeed,   down: false }
                     ]
 
                     delegate: Rectangle {
@@ -339,7 +338,6 @@ Item {
                             color: Theme.textDim
                             font.family: page.monoFont
                             font.pixelSize: 12
-                            font.letterSpacing: 1.5
                         }
 
                         Text {
@@ -412,7 +410,6 @@ Item {
                 color: page.ethernet.state === "connected" ? Theme.accent2 : Theme.textDim
                 font.family: page.monoFont
                 font.pixelSize: 10
-                font.letterSpacing: 1
             }
         }
 
@@ -477,7 +474,7 @@ Item {
                                     anchors.leftMargin: 14
                                     anchors.verticalCenter: parent.verticalCenter
                                     width: 84
-                                    text: modelData.connected ? "DISCONNECT" : "CONNECT"
+                                    text: modelData.connected ? "Disconnect" : "Connect"
                                     color: modelData.connected ? Theme.danger : Theme.accent
                                     font.family: page.monoFont
                                     font.pixelSize: 10
@@ -564,7 +561,7 @@ Item {
                                 }
 
                                 Text {
-                                    text: "CONNECT"
+                                    text: "Connect"
                                     color: Theme.accent2
                                     font.family: Theme.fontFamily
                                     font.pixelSize: 11

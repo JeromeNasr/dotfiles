@@ -89,7 +89,7 @@ PanelWindow {
         Behavior on color { ColorAnimation { duration: 120 } }
         Behavior on opacity { NumberAnimation { duration: 120 } }
 
-        Text {
+        Text { font.family: Theme.fontFamily
             anchors.centerIn: parent
             text: fb.label
             font.pixelSize: fb.fontSize
@@ -105,7 +105,7 @@ PanelWindow {
         }
     }
 
-    component SizeBtn: Text {
+    component SizeBtn: Text { font.family: Theme.fontFamily
         signal clicked()
         height: 14
         verticalAlignment: Text.AlignVCenter
@@ -141,7 +141,7 @@ PanelWindow {
         Behavior on opacity { NumberAnimation { duration: 150 } }
         HoverHandler { id: srHover }
 
-        Text {
+        Text { font.family: Theme.fontFamily
             anchors.left: parent.left
             anchors.leftMargin: 4
             anchors.verticalCenter: parent.verticalCenter
@@ -156,7 +156,7 @@ PanelWindow {
             anchors.verticalCenter: parent.verticalCenter
             spacing: 4
 
-            Text {
+            Text { font.family: Theme.fontFamily
                 width: 34
                 height: 20
                 text: sr.valueText
@@ -543,7 +543,7 @@ PanelWindow {
                                 }
                             }
 
-                            Text {
+                            Text { font.family: Theme.fontFamily
                                 anchors.left: eThumb.right
                                 anchors.leftMargin: 10
                                 anchors.verticalCenter: parent.verticalCenter
@@ -560,7 +560,7 @@ PanelWindow {
                                 width: 20; height: 20; radius: 6
                                 color: Theme.alpha(Theme.text, 0.08)
 
-                                Text {
+                                Text { font.family: Theme.fontFamily
                                     anchors.centerIn: parent
                                     text: entry.modelData.key.toUpperCase()
                                     font.pixelSize: 9
@@ -650,7 +650,7 @@ PanelWindow {
                                 }
                             }
 
-                            Text {
+                            Text { font.family: Theme.fontFamily
                                 anchors.left: rThumb.right
                                 anchors.leftMargin: 10
                                 anchors.verticalCenter: parent.verticalCenter

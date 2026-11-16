@@ -120,8 +120,10 @@ hl.layer_rule({
 })
 
 -- These shell menus animate themselves; skip Hyprland's own layer pop-in so the two animations don't fight.
-for _, ns in ipairs({ "powermenu", "todo", "night-menu", "media-menu", "notifications", "quickshell" }) do
-    hl.layer_rule({ match = { namespace = ns }, no_anim = true })
+hl.layer_rule({ match = { namespace = "quickshell" }, no_anim = true })
+-- They are translucent too, so blur what's behind each card (alpha > 0.5 only, never the whole screen).
+for _, ns in ipairs({ "powermenu", "todo", "night-menu", "media-menu", "notifications" }) do
+    hl.layer_rule({ match = { namespace = ns }, no_anim = true, blur = true, ignore_alpha = 0.5 })
 end
 
 -- Settings is translucent: blur what's behind the card so window text doesn't show through it.

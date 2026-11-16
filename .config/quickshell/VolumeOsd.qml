@@ -349,7 +349,7 @@ PanelWindow {
             color: Theme.text
         }
 
-        Text {
+        Text { font.family: Theme.fontFamily
             anchors.right: parent.right
             anchors.rightMargin: 20
             anchors.verticalCenter: parent.verticalCenter
@@ -419,7 +419,7 @@ PanelWindow {
                 rightMargin: 25
             }
             spacing: 10
-            Text {
+            Text { font.family: Theme.fontFamily
                 width: parent.width / 2 - 5
                 text: root.title || "Nothing playing"
                 horizontalAlignment: Text.AlignLeft
@@ -428,7 +428,7 @@ PanelWindow {
                 font.bold: true
                 color: Theme.text
             }
-            Text {
+            Text { font.family: Theme.fontFamily
                 width: parent.width / 2 - 5
                 text: root.artist || "No artist"
                 horizontalAlignment: Text.AlignRight

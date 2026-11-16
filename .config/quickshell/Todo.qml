@@ -209,7 +209,7 @@ PanelWindow {
         Behavior on color { ColorAnimation { duration: 120 } }
         Behavior on opacity { NumberAnimation { duration: 120 } }
 
-        Text {
+        Text { font.family: Theme.fontFamily
             anchors.centerIn: parent
             text: fb.label
             font.pixelSize: Math.round(fb.fontSize * fb.ui)
@@ -225,7 +225,7 @@ PanelWindow {
         }
     }
 
-    component SizeBtn: Text {
+    component SizeBtn: Text { font.family: Theme.fontFamily
         signal clicked()
         height: 16
         verticalAlignment: Text.AlignVCenter
@@ -363,7 +363,7 @@ PanelWindow {
                         anchors.topMargin: root.px(8)
                         color: Theme.bg
 
-                        Text {
+                        Text { font.family: Theme.fontFamily
                             anchors.centerIn: parent
                             text: "+"
                             font.pixelSize: root.px(16)
@@ -383,7 +383,7 @@ PanelWindow {
                         }
                     }
 
-                    TextEdit {
+                    TextEdit { font.family: Theme.fontFamily
                         id: input
                         anchors.left: addThumb.right
                         anchors.leftMargin: root.px(10)
@@ -414,7 +414,7 @@ PanelWindow {
                             }
                         }
 
-                        Text {
+                        Text { font.family: Theme.fontFamily
                             visible: input.text === "" && !input.inputMethodComposing
                             text: "Add a note/task…  (Shift+Enter = new line)"
                             font.pixelSize: root.px(12)
@@ -424,7 +424,7 @@ PanelWindow {
                     }
                 }
 
-                Text {
+                Text { font.family: Theme.fontFamily
                     visible: todos.count === 0
                     width: parent.width
                     height: root.px(40)
@@ -480,7 +480,7 @@ PanelWindow {
                             border.color: entry.done ? Theme.accent : Theme.alpha(Theme.text, 0.3)
                             Behavior on color { ColorAnimation { duration: 150 } }
 
-                            Text {
+                            Text { font.family: Theme.fontFamily
                                 anchors.centerIn: parent
                                 visible: entry.done
                                 text: "✓"
@@ -495,7 +495,7 @@ PanelWindow {
                             }
                         }
 
-                        TextEdit {
+                        TextEdit { font.family: Theme.fontFamily
                             id: edit
                             anchors.left: check.right
                             anchors.leftMargin: root.px(12)
@@ -544,7 +544,7 @@ PanelWindow {
                             anchors.top: parent.top
                             anchors.topMargin: root.px(12)
 
-                            Text {
+                            Text { font.family: Theme.fontFamily
                                 anchors.centerIn: parent
                                 text: "✕"
                                 font.pixelSize: root.px(12)

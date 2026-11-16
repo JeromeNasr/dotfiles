@@ -36,12 +36,19 @@ PanelWindow {
 
     mask: Region { item: root.panelOpen ? backdrop : stack }
 
+    // Only keep the surface mapped while a popup or the panel is on screen (an idle full-screen layer costs the compositor every frame).
+    readonly property bool wanted: panelOpen || server.trackedNotifications.values.length > 0
+    property bool mapped: false
+    onWantedChanged: { if (wanted) { unmapTimer.stop(); mapped = true } else unmapTimer.restart() }
+    Timer { id: unmapTimer; interval: 800; onTriggered: root.mapped = false }
+    visible: mapped
+
     onPanelOpenChanged: {
         if (panelOpen) root.setPosition(root.offsetX, root.offsetY);
         else dragging = false;
     }
 
-    component Lbl: Text {
+    component Lbl: Text { font.family: Theme.fontFamily
         property real ui: 1
         property real sz: 10
         font.pixelSize: Math.round(sz * ui)
@@ -124,7 +131,7 @@ PanelWindow {
         }
     }
 
-    component SizeBtn: Text {
+    component SizeBtn: Text { font.family: Theme.fontFamily
         signal clicked()
         height: 16
         verticalAlignment: Text.AlignVCenter

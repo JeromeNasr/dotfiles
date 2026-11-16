@@ -94,20 +94,20 @@ PanelWindow {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 4
                 width: parent.width - thumb.width - parent.spacing
-                Text {
+                Text { font.family: Theme.fontFamily
                     text: "Screenshot saved"
                     font.pixelSize: 13
                     font.bold: true
                     color: Theme.text
                 }
-                Text {
+                Text { font.family: Theme.fontFamily
                     text: root.imagePath.split("/").pop()
                     font.pixelSize: 11
                     color: Theme.textDim
                     elide: Text.ElideMiddle
                     width: parent.width
                 }
-                Text {
+                Text { font.family: Theme.fontFamily
                     text: "Copied to clipboard"
                     font.pixelSize: 10
                     color: Theme.textDim

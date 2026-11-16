@@ -9,6 +9,15 @@ local menu = "rofi -show drun"
 hl.bind(mainMod .. " + T", hl.dsp.exec_cmd(terminal)) 
 hl.bind(mainMod .. " + D", hl.dsp.exec_cmd("pgrep -x rofi >/dev/null && pkill -x rofi || " .. menu)) -- Toggle launcher
 hl.bind(mainMod .. " + S", hl.dsp.exec_cmd("qs ipc call wheel toggle")) -- Wheel launcher
+hl.bind(mainMod .. " + P", hl.dsp.exec_cmd("qs ipc call project toggle")) -- Displays / projector menu
+hl.bind("XF86Display", hl.dsp.exec_cmd("qs ipc call project toggle"))
+hl.bind(mainMod .. " + A", hl.dsp.exec_cmd("qs ipc call calendar toggle")) -- Calendar + reminders
+hl.bind(mainMod .. " + Y", hl.dsp.exec_cmd("qs ipc call keyboard toggle")) -- Touch keyboard
+hl.bind(mainMod .. " + SHIFT + T", hl.dsp.exec_cmd("qs ipc call touch toggle")) -- Touch mode
+hl.bind(mainMod .. " + SHIFT + R", hl.dsp.exec_cmd("rotate-screen next")) -- Rotate screen
+hl.bind(mainMod .. " + SHIFT + B", hl.dsp.exec_cmd("boost toggle")) -- Brightness boost on/off
+hl.bind(mainMod .. " + CTRL + B", hl.dsp.exec_cmd("boost next")) -- Cycle boost level
+hl.bind(mainMod .. " + CTRL + R", hl.dsp.exec_cmd("rotate-screen auto")) -- Toggle auto-rotate
 hl.bind(mainMod .. " + E", hl.dsp.exec_cmd(fileManager))
 hl.bind(mainMod .. " + B", hl.dsp.exec_cmd(browser))
 hl.bind(mainMod .. " + Q", hl.dsp.window.close())
@@ -19,7 +28,7 @@ hl.bind(mainMod .. " + GRAVE", hl.dsp.exec_cmd("qs ipc call powermenu toggle")) 
 
 hl.bind(mainMod .. " + I", hl.dsp.exec_cmd("qs ipc call settings toggle")) -- Settings
 
-hl.bind(mainMod .. " + W", hl.dsp.exec_cmd("qs -n -p ~/.config/quickshell/hyprquickpaper")) -- Wallpapers
+hl.bind(mainMod .. " + W", hl.dsp.exec_cmd("~/.local/bin/wallpaper-toggle")) -- Wallpapers
 
 hl.bind(mainMod .. " + F", hl.dsp.window.fullscreen({ mode = 0 })) -- Fullscreen
 
@@ -35,10 +44,17 @@ hl.bind(mainMod .. " + C", hl.dsp.exec_cmd("qs ipc call todo toggle"))  -- To-do
 hl.bind(mainMod .. " + mouse:272", hl.dsp.window.drag(), { mouse = true })
 hl.bind(mainMod .. " + mouse:273", hl.dsp.window.resize(), { mouse = true })
 
+-- Side buttons (mouse:275 = back, mouse:276 = forward). Plain presses are left
+-- alone so apps keep back/forward; only Super combos are bound.
+hl.bind(mainMod .. " + mouse:275", hl.dsp.focus({ workspace = "e-1" })) -- Previous workspace
+hl.bind(mainMod .. " + mouse:276", hl.dsp.focus({ workspace = "e+1" })) -- Next workspace
+hl.bind(mainMod .. " + SHIFT + mouse:275", hl.dsp.window.move({ workspace = "e-1" })) -- Send window to previous workspace
+hl.bind(mainMod .. " + SHIFT + mouse:276", hl.dsp.window.move({ workspace = "e+1" })) -- Send window to next workspace
+
 hl.bind(mainMod .. " + SHIFT + W", hl.dsp.exec_cmd("qs ipc call bar toggle")) -- Toggle bar
 
 -- Clipboard
-hl.bind(mainMod .. " + V", hl.dsp.exec_cmd("pgrep -x rofi >/dev/null && pkill -x rofi || cliphist list | rofi -dmenu -p '' | cliphist decode | wl-copy"))
+hl.bind(mainMod .. " + V", hl.dsp.exec_cmd("pgrep -x rofi >/dev/null && pkill -x rofi || " .. home .. "/.config/hypr/scripts/clipboard.sh"))
 
 -- Screenshot fullscreen
 hl.bind("Delete", hl.dsp.exec_cmd("sh -c 'file=" .. home .. "/Pictures/$(date +%s).png; grim \"$file\"; wl-copy < \"$file\"; qs ipc call screenshot notify \"$file\"'"))
@@ -138,3 +154,25 @@ hl.bind("XF86AudioMute", hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SINK@ to
 hl.bind("XF86AudioPlay", hl.dsp.exec_cmd("playerctl play-pause"), { locked = true })
 hl.bind("XF86AudioNext", hl.dsp.exec_cmd("playerctl next"), { locked = true })
 hl.bind("XF86AudioPrev", hl.dsp.exec_cmd("playerctl previous"), { locked = true })
+hl.bind("XF86AudioStop", hl.dsp.exec_cmd("playerctl stop"), { locked = true })
+-- RK68 Fn row (also sent by the touch keyboard's Fn layer)
+hl.bind("XF86HomePage", hl.dsp.exec_cmd("qs ipc call overview toggle"))
+hl.bind("XF86Mail", hl.dsp.exec_cmd("thunderbird"))
+hl.bind("XF86Calculator", hl.dsp.exec_cmd("kcalc"))
+hl.bind("XF86AudioMedia", hl.dsp.exec_cmd("spotify"))
+hl.bind("XF86AudioRecord", hl.dsp.exec_cmd(os.getenv("HOME") .. "/dotfiles/dotfiles/.config/hypr/bin/record-toggle"))
+
+-- Scratchpad terminal (Super+Z): spawn on first use, then just show/hide the special workspace
+hl.bind(mainMod .. " + Z", function()
+    local found = false
+    for _, w in ipairs(hl.get_windows()) do
+        if w.class == "scratchpad" then found = true break end
+    end
+    if not found then hl.exec_cmd("kitty --class scratchpad") end
+    hl.dispatch(hl.dsp.workspace.toggle_special("scratch"))
+end)
+
+-- Workspace overview (live window thumbnails) and keybind cheat sheet
+hl.bind(mainMod .. " + G", hl.dsp.exec_cmd("qs ipc call overview toggle")) -- Workspace overview
+hl.bind(mainMod .. " + slash", hl.dsp.exec_cmd("qs ipc call cheatsheet press")) -- Keybind cheat sheet (hold to peek, tap to keep open)
+hl.bind(mainMod .. " + slash", hl.dsp.exec_cmd("qs ipc call cheatsheet release"), { release = true })

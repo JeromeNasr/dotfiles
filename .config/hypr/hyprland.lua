@@ -7,7 +7,7 @@ mainMod    = "SUPER"
 terminal   = "kitty"
 menu       = "rofi -show drun"
 fileManager = "thunar"
-browser    = "brave"
+browser    = "zenq"
 
 ---- AUTOSTART ----
 
@@ -18,9 +18,16 @@ hl.on("hyprland.start", function()
     hl.exec_cmd("wl-paste --type image --watch cliphist store")
     hl.exec_cmd("/usr/lib/polkit-kde-authentication-agent-1")
 
+    hl.exec_cmd("hypridle") -- idle/lock/sleep handling (was lost in the .conf -> Lua migration)
+
     hl.exec_cmd("awww-daemon")
     hl.exec_cmd("~/.config/hypr/scripts/wallpaper-restore.sh")
-    hl.exec_cmd("sleep 2 && qs")
+    hl.exec_cmd("sleep 0.5 && qs") -- was 2s; shell only needs the compositor socket
+    hl.exec_cmd("~/.local/bin/boost restore")
+    hl.exec_cmd("~/.local/bin/power-limit restore")
+    hl.exec_cmd("~/.local/bin/power-auto")
+    hl.exec_cmd("~/.local/bin/rotate-auto")
+    hl.exec_cmd("sleep 3 && ~/.local/bin/touch-gestures") -- touchscreen edge/multi-finger gestures + tablet-mode switch
 end)
 
 ---- ENVIRONMENT VARIABLES ----
@@ -33,14 +40,38 @@ hl.env("MOZ_ENABLE_WAYLAND", "1")
 
 hl.config({
     input = {
-        kb_layout = "us,latam",
+        kb_layout = "us,latam,ara",
         follow_mouse = 1,
-        sensitivity = 0.5,
+        sensitivity = -0.5,
         touchpad = {
-            natural_scroll = false,
+            natural_scroll = true,
+            scroll_factor = 0.7, -- 1.0 = default; lower = slower scrolling
             tap_to_click = true,
         },
     },
+})
+
+-- TOUCH & GESTURES
+hl.config({
+    gestures = {
+        workspace_swipe_touch = true,            -- touchscreen: swipe in from the left/right edge to change workspace
+        workspace_swipe_distance = 320,
+        workspace_swipe_cancel_ratio = 0.25,
+        workspace_swipe_min_speed_to_force = 20,
+    },
+    cursor = { hide_on_touch = true },
+})
+-- touchpad (touchscreen gestures live in ~/.local/bin/touch-gestures)
+hl.gesture({ fingers = 3, direction = "horizontal", action = "workspace" })
+hl.gesture({ fingers = 3, direction = "up",   action = function() hl.exec_cmd("qs ipc call wheel toggle") end })
+hl.gesture({ fingers = 3, direction = "down", action = function() hl.exec_cmd("qs ipc call calendar toggle") end })
+hl.gesture({ fingers = 4, direction = "up",   action = function() hl.exec_cmd("qs ipc call overview toggle") end })
+hl.gesture({ fingers = 4, direction = "down", action = "fullscreen" })
+
+-- Touchpad-only sensitivity (global -0.5 keeps the mouse slow)
+hl.device({
+    name = "elan0749:00-04f3:31a5-touchpad",
+    sensitivity = 0.3,
 })
 
 -- LAYOUT
@@ -56,6 +87,11 @@ hl.config({
     misc = {
         disable_hyprland_logo = true,
         disable_splash_rendering = true,
+        -- If hyprlock ever crashes/stalls, let a fresh hyprlock take over the
+        -- session lock instead of leaving the screen permanently locked.
+        allow_session_lock_restore = true,
+        key_press_enables_dpms = true,
+        mouse_move_enables_dpms = true,
     },
 })
 
@@ -68,3 +104,15 @@ require("rules")
 
 -- HyprMod managed settings
 require("hyprland-gui")
+
+-- brightness boost (see ~/.local/bin/boost): re-apply the saved shader after every reload
+do
+    local home = os.getenv("HOME")
+    local f = io.open(home .. "/.config/quickshell/state/boost", "r")
+    if f then
+        local v = f:read("*l"); f:close()
+        if v and v ~= "1.0" then
+            hl.config({ decoration = { screen_shader = home .. "/.config/quickshell/state/boost.frag" } })
+        end
+    end
+end

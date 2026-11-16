@@ -173,6 +173,10 @@ PanelWindow {
         function hide(): void {
             root.hide()
         }
+        function page(name: string): void {       // qs ipc call settings page Power
+            const i = root.navItems.findIndex(n => n.name.toLowerCase() === name.toLowerCase())
+            if (i >= 0) { root.selectedIndex = i; root.show() }
+        }
         function sound(): void {
             root.selectedIndex = 1
             root.show()

@@ -406,7 +406,7 @@ Item {
                 anchors.right: parent.right
                 anchors.rightMargin: 14
                 anchors.verticalCenter: parent.verticalCenter
-                text: page.ethernet.state === "connected" ? "CONNECTED" : "DISCONNECTED"
+                text: page.ethernet.state === "connected" ? "Connected" : "Disconnected"
                 color: page.ethernet.state === "connected" ? Theme.accent2 : Theme.textDim
                 font.family: page.monoFont
                 font.pixelSize: 10

@@ -42,7 +42,7 @@ Scope {
             property bool showNight: true
             property string startMods: "stats,ws"
             property string centerMods: "clock"
-            property string endMods: "media,volume,brightness,profile,battery,net,display,notif,wall,settings,power"
+            property string endMods: "media,volume,brightness,profile,battery,net,display,night,notif,wall,settings,power"
         }
     }
 
@@ -60,7 +60,7 @@ Scope {
         cfg.showNotif = true; cfg.showWall = true; cfg.showSettings = true; cfg.showProfile = true; cfg.showDisplay = true; cfg.showNight = true;
         cfg.startMods = "stats,ws";
         cfg.centerMods = "clock";
-        cfg.endMods = "media,volume,brightness,profile,battery,net,display,notif,wall,settings,power";
+        cfg.endMods = "media,volume,brightness,profile,battery,net,display,night,notif,wall,settings,power";
     }
 
     readonly property bool vertical: cfg.position === "left" || cfg.position === "right"

@@ -36,7 +36,7 @@ Item {
 
     function formatCount(n) {
         var v = Math.round(n) || 0
-        return v + (v === 1 ? " ITEM" : " ITEMS")
+        return v + (v === 1 ? " item" : " items")
     }
 
     function parseSize(v) {

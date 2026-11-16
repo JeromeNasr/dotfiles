@@ -457,7 +457,7 @@ Item {
             }
 
             Text {
-                text: "FONT  (hover to preview, click to apply)"
+                text: "Font  (hover to preview, click to apply)"
                 color: Theme.textDim
                 font.family: Theme.fontFamily
                 font.pixelSize: 12

@@ -23,6 +23,10 @@ PanelWindow {
     property bool busy: false
     property string lastStatus: ""
     property string lastShare: ""
+    property bool nightOn: false
+    property int nightTemp: 3800
+    property bool nightDrag: false
+    readonly property string nightBin: Quickshell.env("HOME") + "/dotfiles/dotfiles/.config/hypr/bin/night"
     property bool dragActive: false        // a screen in the layout map is being dragged
     property real recStart: 0
     property int recSecs: 0
@@ -48,6 +52,12 @@ PanelWindow {
     function refresh() {
         if (!pStatus.running) pStatus.running = true
         if (!pShare.running) pShare.running = true
+        if (!nightDrag && !pNight.running) pNight.running = true
+    }
+    function nightSet(on, temp) {
+        nightOn = on; nightTemp = temp
+        Quickshell.execDetached({ command: [nightBin, "set", String(temp)] })
+        Quickshell.execDetached({ command: [nightBin, on ? "on" : "off"] })
     }
     function run(args) {                       // fire a backend command, then refresh the view
         busy = true
@@ -75,6 +85,8 @@ PanelWindow {
 
     Process { id: pStatus; command: [root.bin + "rice-display", "status"]
         stdout: StdioCollector { onStreamFinished: { if (text === root.lastStatus) return; root.lastStatus = text; try { root.st = JSON.parse(text) } catch (e) {} } } }
+    Process { id: pNight; command: [root.nightBin, "status"]
+        stdout: StdioCollector { onStreamFinished: { try { const d = JSON.parse(text); if (!root.nightDrag) { root.nightOn = d.on; root.nightTemp = d.temp } } catch (e) {} } } }
     Process { id: pShare; command: [root.bin + "rice-share", "status"]
         stdout: StdioCollector { onStreamFinished: {
             if (text === root.lastShare) return; root.lastShare = text
@@ -159,6 +171,27 @@ PanelWindow {
         }
         component Surface: Rectangle {
             radius: 12; color: Theme.alpha(Theme.text, 0.045)
+        }
+        component TempSlider: Item {
+            id: sl
+            property int value: 3800
+            property int from: 2000
+            property int to: 6500
+            signal moved(int v)
+            signal released()
+            height: 28
+            readonly property real frac: (value - from) / (to - from)
+            Rectangle { id: trk; x: 0; width: parent.width; height: 6; radius: 3; anchors.verticalCenter: parent.verticalCenter
+                gradient: Gradient { orientation: Gradient.Horizontal
+                    GradientStop { position: 0; color: "#ff8a2a" } GradientStop { position: 1; color: "#dfe8ff" } } }
+            Rectangle { width: 18; height: 18; radius: 9; anchors.verticalCenter: parent.verticalCenter
+                x: sl.frac * (sl.width - width); color: Theme.text; border.width: 2; border.color: Theme.alpha(Theme.bgPanel, 0.9) }
+            MouseArea { anchors.fill: parent
+                function upd(mx) { const f = Math.max(0, Math.min(1, (mx - 9) / (sl.width - 18)))
+                                   sl.moved(Math.round((sl.from + f * (sl.to - sl.from)) / 50) * 50) }
+                onPressed: m => { root.nightDrag = true; upd(m.x) }
+                onPositionChanged: m => { if (pressed) upd(m.x) }
+                onReleased: { root.nightDrag = false; sl.released() } }
         }
         component Hairline: Rectangle { height: 1; color: Theme.alpha(Theme.text, 0.07) }
         component Toggle: Item {
@@ -575,6 +608,35 @@ PanelWindow {
                                             NumberAnimation { to: 0.25; duration: 600 } NumberAnimation { to: 1; duration: 600 } } }
                                     Text { anchors.verticalCenter: parent.verticalCenter; text: "Recording  " + root.fmtTime(root.recSecs); color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: 13; font.weight: Font.DemiBold }
                                     Chip { danger: true; on: true; label: "Stop and save"; onClicked: root.run([root.bin + "rice-share", "record", "stop"]) }
+                                }
+                            }
+                        }
+                    }
+
+                    // ---------------- night light ----------------
+                    Column {
+                        width: parent.width; spacing: 8
+                        Heading { text: "Night light" }
+                        Surface {
+                            width: parent.width; height: nlCol.implicitHeight + 14
+                            Column {
+                                id: nlCol
+                                width: parent.width
+                                Toggle { label: "Block blue light"; checked: root.nightOn
+                                         onFlipped: root.nightSet(!root.nightOn, root.nightTemp) }
+                                Item {
+                                    width: parent.width; height: 58; opacity: root.nightOn ? 1 : 0.45
+                                    Text { x: 14; y: 2; text: "Warmth"; color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: 12 }
+                                    Text { anchors.right: parent.right; anchors.rightMargin: 14; y: 2; text: root.nightTemp + " K"
+                                           color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: 12 }
+                                    TempSlider { x: 14; y: 22; width: parent.width - 28; value: root.nightTemp
+                                        onMoved: v => { root.nightTemp = v; Quickshell.execDetached({ command: [root.nightBin, "set", String(v)] })
+                                                        if (!root.nightOn) { root.nightOn = true; Quickshell.execDetached({ command: [root.nightBin, "on"] }) } } }
+                                }
+                                Row { x: 14; spacing: 6; bottomPadding: 0
+                                    Chip { label: "Slight"; on: root.nightTemp === 5000; onClicked: root.nightSet(true, 5000) }
+                                    Chip { label: "Medium"; on: root.nightTemp === 3800; onClicked: root.nightSet(true, 3800) }
+                                    Chip { label: "Strong"; on: root.nightTemp === 2800; onClicked: root.nightSet(true, 2800) }
                                 }
                             }
                         }

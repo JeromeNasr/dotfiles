@@ -11,6 +11,7 @@ ShellRoot {
     Calendar {}
     ProjectMenu {}
     NightMenu {}
+    MediaMenu {}
     Wheel {}
     Keyboard {}
     Cheatsheet {}

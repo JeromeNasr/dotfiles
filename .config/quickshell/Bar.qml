@@ -609,45 +609,80 @@ Scope {
     Component {
         id: mediaC
         Item {
-            implicitWidth: root.vertical ? vMedia.implicitWidth : Math.min(Marquee.textW, Marquee.maxW) + 20
+            id: mw
+            readonly property bool hasArt: Marquee.art !== ""
+            // text shown in the bar; swapped under a quick fade so track changes feel seamless
+            property string shown: Marquee.title
+            readonly property real textW: measure.implicitWidth
+            readonly property bool scrolls: textW > Marquee.maxW
+            readonly property real viewW: Math.min(textW, Marquee.maxW)
+            Text { id: measure; visible: false; text: mw.shown; font.family: Theme.iconFont; font.pixelSize: root.sizeMarquee }
+
+            Connections { target: Marquee; function onTitleChanged() { swap.restart() } }
+            SequentialAnimation {
+                id: swap
+                NumberAnimation { target: textBox; property: "opacity"; to: 0; duration: 110 }
+                ScriptAction { script: { mw.shown = Marquee.title; marq.restart() } }
+                NumberAnimation { target: textBox; property: "opacity"; to: 1; duration: 200 }
+            }
+
+            readonly property int artSize: root.panelThick - 8
+            implicitWidth: root.vertical ? vMedia.implicitWidth : 10 + artSize + 8 + viewW + 10
             implicitHeight: root.vertical ? vMedia.implicitHeight : 18
+            Behavior on implicitWidth { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
+            opacity: Marquee.playing ? 1 : 0.6
+            Behavior on opacity { NumberAnimation { duration: 250 } }
 
             Item {
                 visible: !root.vertical
                 anchors.fill: parent
 
+                // album art / play-state badge
                 Item {
-                    anchors.fill: parent
-                    anchors.leftMargin: 10
-                    anchors.rightMargin: 10
-                    clip: true
+                    id: artBox
+                    x: 10; width: mw.artSize; height: mw.artSize
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.verticalCenterOffset: root.iconYOffset
+                    Rectangle { anchors.fill: parent; radius: 4; color: Qt.alpha(Theme.text, 0.12)
+                        Text { anchors.centerIn: parent; text: Marquee.playing ? "\uDB81\uDC0A" : "\uDB80\uDFE4"; color: Theme.text
+                               font.family: Theme.iconFont; font.pixelSize: mw.artSize - 6 } }
+                    RoundImage { anchors.fill: parent; radius: 4; source: Marquee.art }
+                    // pause shade over the art
+                    Rectangle { anchors.fill: parent; radius: 4; color: "black"; opacity: Marquee.playing || !mw.hasArt ? 0 : 0.45
+                        Behavior on opacity { NumberAnimation { duration: 200 } }
+                        Text { anchors.centerIn: parent; text: "\uDB80\uDFE4"; color: "white"; font.family: Theme.iconFont; font.pixelSize: mw.artSize - 6 } }
+                }
 
+                // scrolling title
+                Item {
+                    id: textBox
+                    x: 10 + mw.artSize + 8; width: mw.viewW; height: parent.height; clip: true
+                    anchors.verticalCenterOffset: root.iconYOffset
                     Row {
-                        x: Marquee.animating ? Marquee.x : 0
+                        id: marq
                         spacing: Marquee.gap
                         anchors.verticalCenter: parent.verticalCenter
-                        anchors.verticalCenterOffset: root.iconYOffset
-
-                        Text {
-                            text: Marquee.text
-                            color: Theme.text
-                            font.family: Theme.iconFont
-                            font.pixelSize: root.sizeMarquee
-                            renderType: Text.NativeRendering
-                            width: Marquee.animating ? Marquee.textW
-                                                     : Math.min(Marquee.textW, Marquee.maxW)
-                            elide: Marquee.animating ? Text.ElideNone : Text.ElideRight
-                        }
-
-                        Text {
-                            visible: Marquee.animating
-                            text: Marquee.text
-                            color: Theme.text
-                            font.family: Theme.iconFont
-                            font.pixelSize: root.sizeMarquee
-                            renderType: Text.NativeRendering
+                        function restart() { x = 0; if (mw.scrolls) scroll.restart(); else scroll.stop() }
+                        Text { text: mw.shown; color: Theme.text; font.family: Theme.iconFont; font.pixelSize: root.sizeMarquee; renderType: Text.NativeRendering }
+                        Text { visible: mw.scrolls; text: mw.shown; color: Theme.text; font.family: Theme.iconFont; font.pixelSize: root.sizeMarquee; renderType: Text.NativeRendering }
+                        SequentialAnimation on x {
+                            id: scroll
+                            running: mw.scrolls && Marquee.playing
+                            loops: Animation.Infinite
+                            PauseAnimation { duration: Marquee.holdMs }
+                            NumberAnimation { to: -(mw.textW + Marquee.gap); duration: (mw.textW + Marquee.gap) / Marquee.speed * 1000; easing.type: Easing.Linear }
+                            PropertyAction { value: 0 }
                         }
                     }
+                }
+
+                // thin progress line along the bottom
+                Rectangle {
+                    visible: Marquee.len > 0
+                    x: 10; y: parent.height - 2; height: 2; radius: 1
+                    width: (parent.width - 20) * Marquee.frac
+                    color: Theme.accent; opacity: 0.8
+                    Behavior on width { NumberAnimation { duration: 1000; easing.type: Easing.Linear } }
                 }
 
                 MouseArea {
@@ -656,9 +691,15 @@ Scope {
                     onClicked: mouse => {
                         const p = Marquee.player;
                         if (!p) return;
-                        if (mouse.button === Qt.LeftButton) p.togglePlaying();
-                        else if (mouse.button === Qt.RightButton) p.next();
-                        else p.previous();
+                        if (mouse.button === Qt.LeftButton) {
+                            Marquee.anchorX = mw.mapToItem(null, mw.width / 2, 0).x;
+                            Marquee.menuOpen = !Marquee.menuOpen;
+                        } else if (mouse.button === Qt.RightButton) p.next();
+                        else p.togglePlaying();
+                    }
+                    onWheel: wheel => {
+                        const p = Marquee.player;
+                        if (p && p.canSeek && p.positionSupported) { p.position = Math.max(0, Math.min(p.length, p.position + (wheel.angleDelta.y > 0 ? 5 : -5))); p.positionChanged() }
                     }
                 }
             }
@@ -670,11 +711,8 @@ Scope {
                 text: "\u266B"
                 baseSize: root.sizeMediaVertical
                 onClicked: mouse => {
-                    const p = Marquee.player;
-                    if (!p) return;
-                    if (mouse.button === Qt.LeftButton) p.togglePlaying();
-                    else if (mouse.button === Qt.RightButton) p.next();
-                    else p.previous();
+                    Marquee.anchorX = mw.mapToItem(null, mw.width / 2, 0).x;
+                    Marquee.menuOpen = !Marquee.menuOpen;
                 }
             }
         }

@@ -31,14 +31,18 @@ Scope {
             property bool showWs: true
             property bool showMedia: true
             property bool showVolume: true
+            property bool showBrightness: true
             property bool showBattery: true
             property bool showNet: true
             property bool showNotif: true
             property bool showWall: true
             property bool showSettings: true
+            property bool showProfile: true
+            property bool showDisplay: true
+            property bool showNight: true
             property string startMods: "stats,ws"
             property string centerMods: "clock"
-            property string endMods: "media,volume,battery,net,notif,wall,settings,power"
+            property string endMods: "media,volume,brightness,profile,battery,net,display,notif,wall,settings,power"
         }
     }
 
@@ -52,16 +56,16 @@ Scope {
         cfg.position = "top"; cfg.style = "joined"; cfg.thickness = 20; cfg.margin = 4;
         cfg.scale = 1.0; cfg.bgOpacity = 0.7; cfg.border = false;
         cfg.showStats = false; cfg.showWs = true; cfg.showMedia = true;
-        cfg.showVolume = true; cfg.showBattery = true; cfg.showNet = true;
-        cfg.showNotif = true; cfg.showWall = true; cfg.showSettings = true;
+        cfg.showVolume = true; cfg.showBrightness = true; cfg.showBattery = true; cfg.showNet = true;
+        cfg.showNotif = true; cfg.showWall = true; cfg.showSettings = true; cfg.showProfile = true; cfg.showDisplay = true; cfg.showNight = true;
         cfg.startMods = "stats,ws";
         cfg.centerMods = "clock";
-        cfg.endMods = "media,volume,battery,net,notif,wall,settings,power";
+        cfg.endMods = "media,volume,brightness,profile,battery,net,display,notif,wall,settings,power";
     }
 
     readonly property bool vertical: cfg.position === "left" || cfg.position === "right"
     readonly property bool joined: cfg.style !== "floating"
-    readonly property int panelThick: vertical ? cfg.thickness + 12 : cfg.thickness
+    readonly property int panelThick: (vertical ? cfg.thickness + 12 : cfg.thickness) + (Touch.mode ? 14 : 0)   // taller bar in touch mode
     readonly property int effEdge: cfg.style === "strip" ? 0 : cfg.margin
     readonly property int effGap: cfg.style === "strip" ? 0 : 6
     readonly property real barRadius: cfg.style === "strip" ? 0 : Theme.radius
@@ -69,7 +73,7 @@ Scope {
     readonly property color overlayBgColor: Qt.alpha(Theme.bg, cfg.bgOpacity)
     readonly property color borderColor: Qt.alpha(Theme.accent, 0.25)
 
-    function s(n) { return Math.round(n * cfg.scale); }
+    function s(n) { return Math.round(n * cfg.scale * (Touch.mode ? 1.25 : 1)); }
 
     readonly property int sizeCpuRam: s(12)
     readonly property int sizeClock: s(12)
@@ -104,13 +108,35 @@ Scope {
     readonly property var batIcons: ["\uf244", "\uf243", "\uf242", "\uf241", "\uf240"]
     readonly property string batIcon: batIcons[batPct >= 90 ? 4 : batPct >= 65 ? 3 : batPct >= 40 ? 2 : batPct >= 15 ? 1 : 0]
 
-    readonly property var moduleIds: ["stats", "ws", "media", "volume", "battery", "net", "notif", "wall", "settings", "power"]
+    // ---- power profile (native, follows changes made anywhere) ----
+    readonly property var profileOrder: PowerProfiles.hasPerformanceProfile
+        ? [PowerProfile.PowerSaver, PowerProfile.Balanced, PowerProfile.Performance]
+        : [PowerProfile.PowerSaver, PowerProfile.Balanced]
+    readonly property string profileName: PowerProfiles.profile === PowerProfile.PowerSaver ? "Power saver"
+        : PowerProfiles.profile === PowerProfile.Performance ? "Performance" : "Balanced"
+    readonly property string profileIcon: PowerProfiles.profile === PowerProfile.PowerSaver ? "\uf06c"
+        : PowerProfiles.profile === PowerProfile.Performance ? "\uf135" : "\uf24e"
+    readonly property color profileColor: PowerProfiles.profile === PowerProfile.PowerSaver ? Theme.ok
+        : PowerProfiles.profile === PowerProfile.Performance ? Theme.accent : Theme.text
+    property bool profileFlash: false
+    Timer { id: profileFlashTimer; interval: 1800; onTriggered: root.profileFlash = false }
+    function cycleProfile(d) {
+        const o = profileOrder, i = Math.max(0, o.indexOf(PowerProfiles.profile))
+        PowerProfiles.profile = o[(i + d + o.length) % o.length]
+        profileFlash = true; profileFlashTimer.restart()
+    }
+
+    readonly property var moduleIds: ["stats", "ws", "media", "volume", "brightness", "profile", "battery", "net", "display", "night", "notif", "wall", "settings", "power"]
     readonly property var moduleDefs: [
         { id: "stats", l: "CPU / RAM (x)", k: "showStats" },
         { id: "ws", l: "Workspaces", k: "showWs" },
         { id: "media", l: "Media", k: "showMedia" },
         { id: "volume", l: "Volume", k: "showVolume" },
+        { id: "brightness", l: "Brightness", k: "showBrightness" },
+        { id: "profile", l: "Power profile", k: "showProfile" },
         { id: "battery", l: "Battery", k: "showBattery" },
+        { id: "display", l: "Displays", k: "showDisplay" },
+        { id: "night", l: "Night light", k: "showNight" },
         { id: "net", l: "Network", k: "showNet" },
         { id: "notif", l: "Notifications", k: "showNotif" },
         { id: "wall", l: "Wallpapers", k: "showWall" },
@@ -170,11 +196,15 @@ Scope {
         case "ws": return cfg.showWs;
         case "media": return cfg.showMedia && Marquee.player !== null && Marquee.title !== "";
         case "volume": return cfg.showVolume;
+        case "brightness": return cfg.showBrightness;
         case "battery": return cfg.showBattery && battery !== null;
         case "net": return cfg.showNet;
         case "notif": return cfg.showNotif;
         case "wall": return cfg.showWall;
         case "settings": return cfg.showSettings;
+        case "profile": return cfg.showProfile && PowerProfiles.profile !== undefined;
+        case "display": return cfg.showDisplay;
+        case "night": return cfg.showNight;
         default: return true;
         }
     }
@@ -185,11 +215,15 @@ Scope {
         case "ws": return wsC;
         case "media": return mediaC;
         case "volume": return volumeC;
+        case "brightness": return brightnessC;
         case "battery": return batteryC;
         case "net": return netC;
         case "notif": return notifC;
         case "wall": return wallC;
         case "settings": return settingsC;
+        case "profile": return profileC;
+        case "display": return displayC;
+        case "night": return nightC;
         case "power": return powerC;
         default: return null;
         }
@@ -673,6 +707,21 @@ Scope {
     }
 
     Component {
+        id: brightnessC
+        Mod {
+            baseSize: root.sizeVolText
+            glyphSize: root.sizeVolIcon
+            glyph: "\uDB80\uDCE0"
+            vtext: ""
+            onScrolled: delta => {
+                const step = Math.max(1, Math.round(Math.abs(delta) / 120 * 5));
+                root.run("brightnessctl set " + step + "%" + (delta > 0 ? "+" : "-"));
+            }
+            onClicked: mouse => root.run("qs ipc call settings display")
+        }
+    }
+
+    Component {
         id: batteryC
         Mod {
             baseSize: root.sizeBatText
@@ -708,12 +757,54 @@ Scope {
     }
 
     Component {
+        id: profileC
+        Mod {
+            baseSize: root.sizeBatText
+            glyphSize: root.sizeNetIcon
+            yOffset: root.iconYOffset
+            glyph: root.profileIcon
+            vglyph: root.profileIcon
+            color: root.profileColor
+            text: root.profileFlash ? root.profileName : ""
+            vtext: ""
+            onClicked: mouse => root.cycleProfile(mouse.button === Qt.RightButton ? -1 : 1)
+            onScrolled: delta => root.cycleProfile(delta > 0 ? 1 : -1)
+        }
+    }
+
+    Component {
+        id: nightC
+        Mod {
+            baseSize: root.sizeNetIcon
+            yOffset: root.iconYOffset
+            text: "\uf186"
+            color: NightState.on ? "#ffb066" : Theme.text
+            onClicked: mouse => {
+                if (mouse.button === Qt.RightButton) root.run(NightState.bin + " toggle");
+                else root.run("qs ipc call night toggle");
+            }
+            onScrolled: delta => root.run(NightState.bin + " step " + (delta > 0 ? 200 : -200))
+        }
+    }
+
+    Component {
+        id: displayC
+        Mod {
+            baseSize: root.sizeNetIcon
+            yOffset: root.iconYOffset
+            text: "\uf108"
+            color: Quickshell.screens.length > 1 ? Theme.accent : Theme.text
+            onClicked: root.run("qs ipc call project toggle")
+        }
+    }
+
+    Component {
         id: wallC
         Mod {
             baseSize: root.sizeNetIcon
             yOffset: root.iconYOffset
             text: "\uDB80\uDEE9"
-            onClicked: root.run("qs -n -p ~/.config/quickshell/hyprquickpaper")
+            onClicked: root.run("$HOME/.local/bin/wallpaper-toggle")
         }
     }
 
@@ -985,7 +1076,7 @@ Scope {
                     property bool calOpen: false
                     property int monthOffset: 0
 
-                    SystemClock { id: clk; precision: SystemClock.Minutes }
+                    SystemClock { id: clk; precision: Prefs.seconds ? SystemClock.Seconds : SystemClock.Minutes }
 
                     Component {
                         id: clockC
@@ -993,16 +1084,15 @@ Scope {
                             id: clockMod
                             bold: true
                             baseSize: root.sizeClock
-                            text: Qt.formatDateTime(clk.date, "HH:mm")
-                            vtext: Qt.formatDateTime(clk.date, "HH") + "\n" + Qt.formatDateTime(clk.date, "mm")
+                            text: Prefs.barText(clk.date)
+                            vtext: Qt.formatDateTime(clk.date, Prefs.clock12 ? "h" : "HH") + "\n" + Qt.formatDateTime(clk.date, "mm")
                             onClicked: mouse => {
                                 if (mouse.button === Qt.RightButton) {
                                     root.settingsOpen = !root.settingsOpen;
                                     return;
                                 }
                                 if (mouse.button !== Qt.LeftButton) return;
-                                clockPanel.monthOffset = 0;
-                                clockPanel.calOpen = !clockPanel.calOpen;
+                                root.run("qs ipc call calendar toggle");
                             }
                         }
                     }

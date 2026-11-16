@@ -8,5 +8,11 @@ ShellRoot {
     PowerMenu {}
     Bar {}
     Todo {}
+    Calendar {}
+    ProjectMenu {}
+    NightMenu {}
     Wheel {}
+    Keyboard {}
+    Cheatsheet {}
+    Overview {}
 }

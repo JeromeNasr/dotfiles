@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# night — blue-light filter via hyprsunset.   night on|off|toggle|set <K>|restore|status
+# night — blue-light filter via hyprsunset.   night on|off|toggle|set <K>|step <±K>|restore|status
 # State: ~/.config/quickshell/state/night  ("on|off TEMP"). Lower K = warmer (6500 = no filter).
 S="$HOME/.config/quickshell/state/night"; mkdir -p "$(dirname "$S")"
 read -r on temp < "$S" 2>/dev/null; on=${on:-off}; temp=${temp:-3800}
@@ -16,7 +16,8 @@ case "$1" in
   off) on=off; save; apply;;
   toggle) [[ $on == on ]] && on=off || on=on; save; apply;;
   set) temp=$(clamp "${2:-$temp}"); save; [[ $on == on ]] && apply;;
+  step) temp=$(clamp $((temp + ${2:-0}))); on=on; save; apply;;
   restore) apply;;
   status) echo "{\"on\": $([[ $on == on ]] && echo true || echo false), \"temp\": $temp}";;
-  *) echo "usage: night on|off|toggle|set K|restore|status"; exit 1;;
+  *) echo "usage: night on|off|toggle|set K|step N|restore|status"; exit 1;;
 esac

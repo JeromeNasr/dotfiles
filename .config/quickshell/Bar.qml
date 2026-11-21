@@ -505,19 +505,22 @@ Scope {
         else if (a === "barsettings") openSettings();
         else if (a === "quickactions") run("qs ipc call qa toggle");
     }
-    function openSidepanelAt(item) {
+    function openSidepanelAt(item, view) {
+        const v = (view === "calendar" || view === "weather") ? view : "";
         const win = item && item.QsWindow ? item.QsWindow.window : null;
         if (!win || !win.screen) {
+            if (v !== "") Quickshell.execDetached(["qs", "ipc", "call", "sidepanel", "view", v]);
             Quickshell.execDetached(["qs", "ipc", "call", "sidepanel", "toggle"]);
             return;
         }
         const c = item.mapToItem(win.contentItem, item.width / 2, item.height / 2);
         const along = Math.round(root.vertical ? c.y : c.x);
         const edge = root.panelThick + root.effEdge;
-        Quickshell.execDetached([
-            "qs", "ipc", "call", "sidepanel", "toggleAt",
-            win.screen.name, cfg.position, String(along), String(edge)
-        ]);
+        Quickshell.execDetached(v !== ""
+            ? ["qs", "ipc", "call", "sidepanel", "toggleAtView",
+               win.screen.name, cfg.position, String(along), String(edge), v]
+            : ["qs", "ipc", "call", "sidepanel", "toggleAt",
+               win.screen.name, cfg.position, String(along), String(edge)]);
     }
     IpcHandler {
         target: "bar"
@@ -570,7 +573,12 @@ Scope {
         77: "Snow grains", 80: "Rain showers", 81: "Rain showers", 82: "Heavy showers",
         85: "Snow showers", 86: "Snow showers", 95: "Thunderstorm", 96: "Thunderstorm", 99: "Thunderstorm"
     })
-    readonly property string wxDesc: wxNames[wxCode] ?? ""
+    readonly property string wxDesc: {
+    if (wxCode === 0) return wxDay ? "Sunny" : "Clear"
+    if (wxCode === 1) return wxDay ? "Mostly sunny" : "Mostly clear"
+    if (wxCode === 3) return "Cloudy"
+    return wxNames[wxCode] ?? ""
+}
     function wxGlyph(c) {
         if (c === 0 || c === 1) return wxDay ? "\uDB81\uDD99" : "\uDB81\uDD94";
         if (c === 2) return wxDay ? "\uDB81\uDD95" : "\uDB83\uDF31";
@@ -588,7 +596,7 @@ Scope {
     readonly property string wxText: cfg.weatherCase === "upper" ? wxDesc.toUpperCase()
                                    : cfg.weatherCase === "lower" ? wxDesc.toLowerCase() : wxDesc
     function wxDeg(c) { return Math.round(cfg.weatherF ? c * 9 / 5 + 32 : c) + "°" + (cfg.weatherF ? "F" : "C"); }
-    readonly property string wxTip: wxOk ? (wxReal !== "" ? wxReal : wxDesc) + " · " + wxDeg(wxTempC)
+    readonly property string wxTip: wxOk ? wxDesc + " · " + wxDeg(wxTempC)
                                          : "Weather: unavailable"
     function fetchWx() {
         if (!wxProc.running) wxProc.running = true;
@@ -1169,7 +1177,6 @@ Scope {
         readonly property real totalW: glyphW + glyphGap + titleW
         TextMetrics { id: gPlay;  text: "\uDB81\uDC0A"; font.family: Theme.iconFont; font.pixelSize: root.sz.mq }
         TextMetrics { id: gPause; text: "\uDB80\uDFE4"; font.family: Theme.iconFont; font.pixelSize: root.sz.mq }
-
         // fixed icon
         Item {
             id: iconBox
@@ -1255,7 +1262,7 @@ Scope {
             id: clockMod
             padX: root.joined ? 0 : Math.round((root.vertical ? 28 : 16) * root.bs)
             function act(a) {
-                if (a === "calendar") root.openSidepanelAt(clockMod);
+                if (a === "calendar") root.openSidepanelAt(null);
                 else root.doAction(a);
             }
             bold: true; baseSize: root.sz.clock; text: root.clockBarText(clk.date)
@@ -1271,14 +1278,16 @@ Scope {
     Component {
         id: weatherC
         Mod {
+            id: wxMod
             glyph: cfg.weatherIcon ? root.wxGlyph(root.wxCode) : ""
             vglyph: root.wxGlyph(root.wxCode)
             text: cfg.weatherIcon || !root.wxOk ? root.wxTemp
                 : root.wxText + (root.wxTemp !== "" ? "  " + root.wxTemp : "")
             vtext: root.wxTemp
             glyphSize: root.sz.icon - 2; baseSize: root.sz.clock; bold: true
-            tip: root.wxTip; primaryHint: "Refresh"; secondaryHint: "Bar settings"
-            onPrimary: root.refreshWeather(); onSecondary: root.openSettings()
+            tip: root.wxTip; primaryHint: "Weather panel"; secondaryHint: "Bar settings"; tertiaryHint: "Refresh"
+            onPrimary: root.openSidepanelAt(null, "weather"); onSecondary: root.openSettings()
+            onTertiary: root.refreshWeather()
         }
     }
     Component {

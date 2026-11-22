@@ -1,493 +1,337 @@
+// SystemPage.qml — machine overview + live CPU / RAM / GPU.
+// All live polling stops while Settings is closed (the page stays loaded in the background),
+// and each tick is ONE small shell read of /proc + /sys instead of 4–5 separate programs.
 import QtQuick
+import Quickshell
 import Quickshell.Io
 import "../"
 
 Item {
     id: page
-    property string homeDir: ""
-    property string uptime: "..."
-    property string os: "..."
+
+    // set by SettingsWindow (true only while the Settings card is open)
+    property bool live: true
+
+    readonly property string mono: "JetBrainsMono Nerd Font"
+    readonly property int rightMargin: 46
+
+    // ---- static info (read once) ----
+    property string user: ""
+    property string host: "…"
+    property string model: ""
+    property string os: "…"
+    property string kernel: "…"
     property string wm: "Hyprland"
-    property string cpu: "Loading..."
-    property string gpu: "Loading..."
-    property string memory: "Loading..."
-    property string ramSpeed: "Loading..."
-    property real cpuUsage: 0
-    property real gpuUsage: 0
-    property real memoryUsage: 0
-    property string cpuTemp: "—"
-    property string gpuTemp: "—"
-    property var cpuHistory: []
-    property var gpuHistory: []
-    property var memoryHistory: []
-    property var cpuPrev: null
-    property int hardwareLabelSize: 12
-    property int hardwareTextSize: 12
-    property string mono: "JetBrainsMono Nerd Font"
-    property int rightMargin: 46
+    property string shell: "…"
+    property string pkgs: "…"
+    property string cpu: "…"
+    property string cpuCores: ""
+    property string gpu: "…"
+    property string tempPath: ""
+    property string gpuFreqPath: ""
+    property string batPath: ""
+
+    // ---- live ----
     property string currentTime: ""
+    property string uptime: "…"
+    property real cpuUsage: 0
+    property real memoryUsage: 0
+    property real gpuUsage: 0
+    property string memory: "…"
+    property string cpuTemp: ""
+    property string cpuFreq: ""
+    property string gpuFreq: ""
+    property string battery: ""
+    property var cpuPrev: null
 
-    function updateGraph(value, type) {
-        value = parseFloat(value)
+    function push(type, value) {
+        value = Math.max(0, Math.min(100, Number(value)))
         if (isNaN(value)) return
-        value = Math.max(0, Math.min(100, value))
         page[type + "Usage"] = value
-        var history = page[type + "History"].slice()
-        history.push(value)
-        if (history.length > 60) history.shift()
-        page[type + "History"] = history
     }
-
-    function updateCpuFromStat(value) {
-        var p = value.trim().split(/\s+/)
-        if (p.length < 5) return
-        var user = Number(p[1])
-        var nice = Number(p[2])
-        var system = Number(p[3])
-        var idle = Number(p[4])
-        var iowait = Number(p[5] || 0)
-        var irq = Number(p[6] || 0)
-        var softirq = Number(p[7] || 0)
-        var steal = Number(p[8] || 0)
-        var idleTime = idle + iowait
-        var total = user + nice + system + idle + iowait + irq + softirq + steal
-
-        if (cpuPrev !== null) {
-            var totalDelta = total - cpuPrev.total
-            var idleDelta = idleTime - cpuPrev.idle
-            if (totalDelta > 0)
-                updateGraph(100 * (1 - idleDelta / totalDelta), "cpu")
-        }
-        cpuPrev = { total: total, idle: idleTime }
+    function gib(kb) { const g = kb / 1048576; return g >= 1 ? g.toFixed(1) + " GiB" : Math.round(kb / 1024) + " MiB" }
+    function fmtUptime(sec) {
+        const d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60)
+        return (d ? d + "d " : "") + (d || h ? h + "h " : "") + m + "m"
     }
+    function tickClock() { currentTime = Qt.formatTime(new Date(), "HH:mm:ss") }
 
-    function formatMemory(kb) {
-        var gb = kb / 1024 / 1024
-        return gb >= 1 ? gb.toFixed(1) + " GiB" : Math.round(kb / 1024) + " MiB"
-    }
-
-    function updateMemoryFromStat(value) {
-        var total = 0
-        var available = 0
-        var lines = value.trim().split("\n")
-        for (var i = 0; i < lines.length; i++) {
-            var parts = lines[i].trim().split(/\s+/)
-            if (parts[0] === "MemTotal:")
-                total = Number(parts[1])
-            else if (parts[0] === "MemAvailable:")
-                available = Number(parts[1])
-        }
-        if (total <= 0) return
-        var used = total - available
-        updateGraph((used / total) * 100, "memory")
-        page.memory = formatMemory(used) + " / " + formatMemory(total)
-    }
-
-    function formatTemp(value) {
-        var temp = parseFloat(value.trim())
-        return isNaN(temp) ? "—" : Math.round(temp) + "°C"
-    }
-
-    function sensorTempCmd(patterns) {
-        return "sensors 2>/dev/null | awk '/" + patterns.join("|") +
-            "/ {for(i=1;i<=NF;i++) if($i ~ /\\+?[0-9]+(\\.[0-9]+)?°C/) " +
-            "{gsub(/[+°C]/, \"\", $i); print $i; exit}}'"
-    }
-    function updateClock() {
-        page.currentTime = Qt.formatTime(new Date(), "HH:mm:ss")
-    }
-
-    function drawGraph(ctx, history) {
-        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height)
-        var w = ctx.canvas.width
-        var h = ctx.canvas.height
-        if (history.length < 2) return
-        var step = w / (history.length - 1)
-        ctx.beginPath()
-        ctx.moveTo(0, h)
-        for (var i = 0; i < history.length; i++)
-            ctx.lineTo(i * step, h - history[i] / 100 * h)
-        ctx.lineTo(w, h)
-        ctx.closePath()
-        ctx.fillStyle = Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.10)
-        ctx.fill()
-        ctx.beginPath()
-        for (var j = 0; j < history.length; j++) {
-            var x = j * step
-            var y = h - history[j] / 100 * h
-            if (j) ctx.lineTo(x, y)
-            else ctx.moveTo(x, y)
-        }
-
-        ctx.strokeStyle = Theme.accent
-        ctx.lineWidth = 2
-        ctx.lineJoin = "round"
-        ctx.lineCap = "round"
-        ctx.stroke()
-    }
-
-    component InfoRow: Column {
-        property string icon: ""
-        property string label: ""
-        property string value: ""
-
-        spacing: 3
-
-        Text {
-            text: icon + "  " + label
-            color: Theme.textDim
-            font.family: page.mono
-            font.pixelSize: 10
-        }
-
-        Text {
-            text: value
-            color: Theme.text
-            font.family: Theme.fontFamily
-            font.pixelSize: 13
-            elide: Text.ElideRight
-            width: 500
-        }
-    }
-
-    component HardwareGraph: Column {
-        id: block
-        property string icon: ""
-        property string label: ""
-        property string valueText: ""
-        property var badges: []
-        property var history: []
-        width: parent.width
-        spacing: 10
-        onHistoryChanged: graphCanvas.requestPaint()
-
-        Row {
-            width: parent.width
-            height: 24
-            spacing: 20
-
-            Text {
-                text: block.icon + "  " + block.label
-                color: Theme.textDim
-                font.family: page.mono
-                font.pixelSize: page.hardwareLabelSize
-                anchors.verticalCenter: parent.verticalCenter
-            }
-
-            Text {
-                text: block.valueText
-                color: Theme.text
-                font.family: Theme.fontFamily
-                font.pixelSize: page.hardwareTextSize
-                elide: Text.ElideLeft
-                anchors.verticalCenter: parent.verticalCenter
-            }
-
-            Repeater {
-                model: block.badges
-                Text {
-                    text: modelData
-                    color: Theme.text
-                    font.family: page.mono
-                    font.pixelSize: 12
-                    anchors.verticalCenter: parent.verticalCenter
-                }
-            }
-        }
-
-        Item {
-            width: parent.width
-            height: 60
-            Rectangle {
-                anchors.fill: parent
-                color: "transparent"
-                border.color: Theme.border
-            }
-
-            Repeater {
-                model: [0.25, 0.5, 0.75]
-
-                Rectangle {
-                    y: parent.height * modelData
-                    width: parent.width
-                    height: 1
-                    color: Theme.border
-                    opacity: 0.35
-                }
-            }
-
-            Canvas {
-                id: graphCanvas
-                anchors.fill: parent
-                anchors.margins: 6
-                onPaint: page.drawGraph(getContext("2d"), block.history)
-            }
-
-            Text {
-                text: "100%"
-                anchors { top: parent.top; right: parent.right; margins: 5 }
-                color: Theme.text
-                opacity: 0.35
-                font.family: page.mono
-                font.pixelSize: 8
-            }
-
-            Text {
-                text: "0%"
-                anchors { bottom: parent.bottom; right: parent.right; margins: 5 }
-                color: Theme.text
-                opacity: 0.35
-                font.family: page.mono
-                font.pixelSize: 8
-            }
-        }
-    }
-
+    // ================= data =================
     Process {
-        id: pHome
-        command: ["sh", "-c", "printf '%s' \"$HOME\""]
+        id: pStatic
         running: true
-        stdout: StdioCollector { onStreamFinished: page.homeDir = text.trim() }
-    }
-    Process {
-        id: pUptime
-        command: ["uptime", "-p"]
-        running: true
-        stdout: StdioCollector { onStreamFinished: page.uptime = text.trim() }
-    }
-    Process {
-        id: pOs
-        command: ["sh", "-c", "grep PRETTY_NAME /etc/os-release | cut -d= -f2 | tr -d '\"'"]
-        running: true
-        stdout: StdioCollector { onStreamFinished: page.os = text.trim() }
-    }
-    Process {
-        id: pCpu
-        command: ["sh", "-c", "awk -F: '/model name/ {gsub(/^ +/, \"\", $2); print $2; exit}' /proc/cpuinfo"]
-        running: true
-        stdout: StdioCollector { onStreamFinished: page.cpu = text.trim() }
-    }
-    Process {
-        id: pCpuUsage
-        command: ["sh", "-c", "head -1 /proc/stat"]
-        running: true
-        stdout: StdioCollector { onStreamFinished: page.updateCpuFromStat(text) }
-    }
-    Process {
-        id: pCpuTemp
-        command: ["sh", "-c", page.sensorTempCmd(["Package id 0:", "Tctl:", "Tdie:"])]
-        running: true
-        stdout: StdioCollector { onStreamFinished: page.cpuTemp = page.formatTemp(text) }
-    }
-    Process {
-        id: pGpu
-        command: [
-            "sh", "-c",
-            "lspci 2>/dev/null | grep -Ei 'VGA|3D|Display' | sed -E 's/.*: //; s/ \\(rev.*\\)//' | head -1"
-        ]
-        running: true
-        stdout: StdioCollector {
-            onStreamFinished: page.gpu = text.trim() || "Unknown"
-        }
-    }
-    Process {
-        id: pGpuUsage
-        command: ["sh", "-c", "nvtop -s 2>/dev/null | jq -r '.[0].gpu_util' | tr -d '%'"]
-        running: true
-        stdout: StdioCollector { onStreamFinished: page.updateGraph(text, "gpu") }
-    }
-    Process {
-        id: pGpuTemp
-        command: ["sh", "-c", page.sensorTempCmd(["GPU Temp:", "edge:", "junction:", "temp1:"])]
-        running: true
-        stdout: StdioCollector { onStreamFinished: page.gpuTemp = page.formatTemp(text) }
-    }
-    Process {
-        id: pMemory
-        command: ["sh", "-c", "grep -E '^(MemTotal|MemAvailable):' /proc/meminfo"]
-        running: true
-        stdout: StdioCollector { onStreamFinished: page.updateMemoryFromStat(text) }
-    }
-
-    Process {
-        id: pRamSpeed
-        command: ["sudo", "-n", "/usr/bin/dmidecode", "-t", "memory"]
-        running: true
+        command: ["sh", "-c",
+            "echo \"user=$USER\"; echo \"host=$(cat /proc/sys/kernel/hostname)\";" +
+            "echo \"model=$(cat /sys/class/dmi/id/product_name 2>/dev/null)\";" +
+            ". /etc/os-release; echo \"os=$PRETTY_NAME\";" +
+            "echo \"kernel=$(uname -r)\";" +
+            "echo \"shell=$(basename \"$SHELL\")\";" +
+            "echo \"pkgs=$(pacman -Qq 2>/dev/null | wc -l)\";" +
+            "echo \"cpu=$(awk -F': ' '/model name/{print $2; exit}' /proc/cpuinfo)\";" +
+            "echo \"cores=$(grep -c ^processor /proc/cpuinfo)\";" +
+            "echo \"gpu=$(lspci 2>/dev/null | grep -Ei 'VGA|3D|Display' | head -1 | sed -E 's/.*: //; s/ \\(rev.*//; s/Corporation //')\";" +
+            "for h in /sys/class/hwmon/hwmon*; do case $(cat $h/name) in coretemp|k10temp|zenpower) echo \"temp=$h/temp1_input\"; break;; esac; done;" +
+            "for c in /sys/class/drm/card?; do [ -r $c/gt_act_freq_mhz ] && { echo \"gfreq=$c/gt_act_freq_mhz\"; break; }; done;" +
+            "for b in /sys/class/power_supply/BAT*; do [ -r $b/capacity ] && { echo \"bat=$b\"; break; }; done"]
         stdout: StdioCollector {
             onStreamFinished: {
-                var lines = text.split("\n")
-                var speed = ""
-
-                for (var i = 0; i < lines.length; i++) {
-                    var line = lines[i].trim()
-                    if (line.indexOf("Configured Memory Speed:") === 0) {
-                        var parts = line.split(/\s+/)
-                        if (parts.length >= 4 && /^[0-9]+$/.test(parts[3])) {
-                            speed = parts[3] + " " + parts[4]
-                            break
-                        }
-                    }
+                for (const line of text.split("\n")) {
+                    const i = line.indexOf("="); if (i < 0) continue
+                    const k = line.slice(0, i), v = line.slice(i + 1).trim()
+                    if (k === "user") page.user = v
+                    else if (k === "host") page.host = v
+                    else if (k === "model") page.model = v
+                    else if (k === "os") page.os = v
+                    else if (k === "kernel") page.kernel = v
+                    else if (k === "shell") page.shell = v
+                    else if (k === "pkgs") page.pkgs = v + " (pacman)"
+                    else if (k === "cpu") page.cpu = v.replace(/\(R\)|\(TM\)|CPU /g, "").replace(/^\d+(st|nd|rd|th) Gen /, "").replace(/^(Intel|AMD) /, "").replace(/\s+/g, " ").replace(/ @.*/, "").trim()
+                    else if (k === "cores") page.cpuCores = v + " threads"
+                    else if (k === "gpu") { const br = v.match(/\[([^\]]+)\]/); page.gpu = (br ? br[1] : v) || "Unknown" }
+                    else if (k === "temp") page.tempPath = v
+                    else if (k === "gfreq") page.gpuFreqPath = v
+                    else if (k === "bat") page.batPath = v
                 }
-
-                if (!speed) {
-                    for (var j = 0; j < lines.length; j++) {
-                        var line2 = lines[j].trim()
-                        if (line2.indexOf("Speed:") === 0) {
-                            var parts2 = line2.split(/\s+/)
-                            if (parts2.length >= 3 && /^[0-9]+$/.test(parts2[1])) {
-                                speed = parts2[1] + " " + parts2[2]
-                                break
-                            }
-                        }
-                    }
-                }
-
-                page.ramSpeed = speed || "Unknown"
+                pLive.running = page.live
             }
         }
     }
 
-    Timer {
-        interval: 1000
-        running: true
-        repeat: true
-        onTriggered: {
-            page.updateClock()
-            pCpuUsage.running = true
-            pCpuTemp.running = true
-            pGpuUsage.running = true
-            pGpuTemp.running = true
+    // one cheap read per second: cpu, mem, temp, freqs, battery, uptime
+    Process {
+        id: pLive
+        command: ["sh", "-c",
+            "head -1 /proc/stat; grep -E '^(MemTotal|MemAvailable):' /proc/meminfo;" +
+            "echo \"up $(cut -d' ' -f1 /proc/uptime)\";" +
+            "awk '/cpu MHz/{s+=$4;n++} END{if(n) printf \"mhz %d\\n\", s/n}' /proc/cpuinfo;" +
+            (page.tempPath ? "echo \"temp $(cat " + page.tempPath + ")\";" : "") +
+            (page.gpuFreqPath ? "echo \"gfreq $(cat " + page.gpuFreqPath + ")\";" : "") +
+            (page.batPath ? "echo \"bat $(cat " + page.batPath + "/capacity) $(cat " + page.batPath + "/status)\";" : "")]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                let memTotal = 0, memAvail = 0
+                for (const line of text.split("\n")) {
+                    const p = line.trim().split(/\s+/)
+                    if (p[0] === "cpu") {
+                        const n = p.slice(1).map(Number)
+                        const idle = n[3] + (n[4] || 0), total = n.slice(0, 8).reduce((a, b) => a + (b || 0), 0)
+                        if (page.cpuPrev && total > page.cpuPrev.total)
+                            page.push("cpu", 100 * (1 - (idle - page.cpuPrev.idle) / (total - page.cpuPrev.total)))
+                        page.cpuPrev = { total: total, idle: idle }
+                    }
+                    else if (p[0] === "MemTotal:") memTotal = Number(p[1])
+                    else if (p[0] === "MemAvailable:") memAvail = Number(p[1])
+                    else if (p[0] === "up") page.uptime = page.fmtUptime(Number(p[1]))
+                    else if (p[0] === "mhz") page.cpuFreq = (Number(p[1]) / 1000).toFixed(1) + " GHz"
+                    else if (p[0] === "temp") page.cpuTemp = Math.round(Number(p[1]) / 1000) + "°C"
+                    else if (p[0] === "gfreq") page.gpuFreq = Number(p[1]) > 0 ? p[1] + " MHz" : "idle"
+                    else if (p[0] === "bat") page.battery = p[1] + "%" + (p[2] === "Charging" ? "  󱐋" : p[2] === "Full" ? "  full" : "")
+                }
+                if (memTotal > 0) {
+                    page.push("memory", (memTotal - memAvail) / memTotal * 100)
+                    page.memory = page.gib(memTotal - memAvail) + " of " + page.gib(memTotal)
+                }
+            }
         }
     }
 
-    Timer {
-        interval: 2000
-        running: true
-        repeat: true
-        onTriggered: pMemory.running = true
+    // GPU load needs nvtop (~0.1 s), so only every 2 s
+    Process {
+        id: pGpu
+        command: ["sh", "-c", "nvtop -s 2>/dev/null | grep -m1 '\"gpu_util\"' | grep -oE '[0-9]+'"]
+        stdout: StdioCollector { onStreamFinished: if (text.trim() !== "") page.push("gpu", text.trim()) }
     }
 
     Timer {
-        interval: 5000
-        running: true
-        repeat: true
-        onTriggered: pUptime.running = true
+        interval: 1000; repeat: true; triggeredOnStart: true
+        running: page.live
+        property int n: 0
+        onTriggered: {
+            page.tickClock()
+            if (!pStatic.running) pLive.running = true
+            if (n++ % 2 === 0) pGpu.running = true
+        }
     }
 
-    Component.onCompleted: {
-        page.updateClock()
-        pRamSpeed.running = true
-        pCpuTemp.running = true
-        pGpuTemp.running = true
+    // ================= pieces =================
+    // Pixel-art N, drawn as a sprite: 3-px stems, an evenly stepped 3-px diagonal,
+    // top-left lighting (lit top/left edges, shaded bottom/right) and a 1-px drop shadow.
+    // Pixels drop in diagonally on open; hover sends a glint across.
+    component PixelN: Item {
+        id: pn
+        property int px: 11
+        readonly property int gw: 12            // grid width
+        readonly property int gh: 12            // grid height
+        function on(x, y) {
+            if (x < 0 || y < 0 || x >= gw || y >= gh) return false
+            if (x < 3 || x >= gw - 3) return true                       // stems
+            const s = 2 + Math.round(y * (gw - 6) / (gh - 1))          // diagonal start
+            return x >= s && x <= s + 2
+        }
+        readonly property var cells: {
+            const out = []
+            for (let y = 0; y <= gh; y++)
+                for (let x = 0; x <= gw; x++) {
+                    if (on(x, y)) {
+                        // 0 lit (top/left edge), 2 shade (bottom/right edge), 1 body
+                        const t = !on(x, y - 1) ? 0 : !on(x, y + 1) ? 2 : !on(x - 1, y) ? 0 : !on(x + 1, y) ? 2 : 1
+                        out.push({ x: x, y: y, t: t })
+                    } else if (on(x - 1, y - 1)) {
+                        out.push({ x: x, y: y, t: 3 })                          // drop shadow
+                    }
+                }
+            return out
+        }
+        width: (gw + 1) * px
+        height: (gh + 1) * px
+
+        property real intro: -1
+        property real glint: -10
+        NumberAnimation on intro { from: -1; to: 26; duration: 600; easing.type: Easing.OutQuad; running: true }
+        NumberAnimation { id: glintAnim; target: pn; property: "glint"; from: -3; to: 28; duration: 700; easing.type: Easing.InOutSine }
+        HoverHandler { onHoveredChanged: if (hovered && !glintAnim.running) glintAnim.restart() }
+
+        Repeater {
+            model: pn.cells
+            Rectangle {
+                required property var modelData
+                readonly property int d: modelData.x + modelData.y
+                readonly property bool shine: modelData.t < 3 && Math.abs(pn.glint - d) < 1.2
+                x: modelData.x * pn.px
+                y: modelData.y * pn.px
+                width: pn.px; height: pn.px
+                antialiasing: false
+                opacity: pn.intro >= d ? 1 : 0
+                Behavior on opacity { NumberAnimation { duration: 80 } }
+                color: shine ? Qt.lighter(Theme.accent, 1.55)
+                     : modelData.t === 0 ? Qt.lighter(Theme.accent, 1.2)
+                     : modelData.t === 1 ? Theme.accent
+                     : modelData.t === 2 ? Qt.darker(Theme.accent, 1.3)
+                     : Theme.alpha(Theme.bg, 0.9)
+            }
+        }
     }
 
+    // `key   value` line, neofetch style
+    component Fact: Row {
+        property string k: ""
+        property string v: ""
+        visible: v !== ""
+        Text { width: 84; text: parent.k; color: Theme.accent; font.family: page.mono; font.pixelSize: 12 }
+        Text { text: parent.v; color: Theme.text; font.family: page.mono; font.pixelSize: 12 }
+    }
+
+    // one live line:  cpu  ▮▮▮▮▮▯▯▯▯▯  9%  56°C · 2.2 GHz
+    component Meter: Item {
+        id: mt
+        property string label: ""
+        property real value: 0
+        property string extra: ""
+        readonly property int segs: 40
+        readonly property color tone: value >= 85 ? Theme.danger : Theme.accent
+        width: parent.width
+        height: 20
+
+        Row {
+            id: lead
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 0
+            Text { width: 52; text: mt.label; color: Theme.textDim; font.family: page.mono; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
+            Row {
+                spacing: 2
+                anchors.verticalCenter: parent.verticalCenter
+                Repeater {
+                    model: mt.segs
+                    Rectangle {
+                        required property int index
+                        width: 6; height: 12
+                        color: index < Math.round(mt.value / 100 * mt.segs) ? mt.tone : Theme.alpha(Theme.textFaint, 0.18)
+                    }
+                }
+            }
+            Text { width: 54; text: Math.round(mt.value) + "%"; horizontalAlignment: Text.AlignRight; color: Theme.text; font.family: page.mono; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
+            Item { width: 18; height: 1 }
+            Text { width: 170; text: mt.extra; elide: Text.ElideRight; color: Theme.textFaint; font.family: page.mono; font.pixelSize: 11; anchors.verticalCenter: parent.verticalCenter }
+        }
+    }
+
+    // ================= layout =================
     Flickable {
         id: scrollArea
-        anchors.top: parent.top
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
+        anchors.fill: parent
         clip: true
         contentWidth: width
-        contentHeight: contentColumn.implicitHeight
+        contentHeight: contentColumn.implicitHeight + 8
         boundsBehavior: Flickable.StopAtBounds
 
         WheelHandler {
-            onWheel: function(event) {
-                var delta = event.angleDelta.y
-                if (delta !== 0) {
-                    scrollArea.contentY = Math.max(
-                        0,
-                        Math.min(scrollArea.contentHeight - scrollArea.height, scrollArea.contentY - delta)
-                    )
-                }
+            onWheel: function (event) {
+                scrollArea.contentY = Math.max(0, Math.min(scrollArea.contentHeight - scrollArea.height, scrollArea.contentY - event.angleDelta.y))
                 event.accepted = true
             }
         }
 
         Column {
             id: contentColumn
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.rightMargin: page.rightMargin
+            anchors { left: parent.left; right: parent.right; rightMargin: page.rightMargin }
             spacing: 14
 
-            Text {
-                text: "System"
-                color: Theme.text
-                font.family: Theme.fontFamily
-                font.pixelSize: 19
+            Item {
+                width: parent.width; height: 26
+                Text { text: "System"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: 19; anchors.verticalCenter: parent.verticalCenter }
+                Text { text: page.currentTime; color: Theme.textDim; font.family: page.mono; font.pixelSize: 16; anchors { right: parent.right; verticalCenter: parent.verticalCenter } }
             }
-
-            Rectangle {
-                width: parent.width
-                height: 1
-                color: Theme.border
-            }
+            Rectangle { width: parent.width; height: 1; color: Theme.border }
 
             Row {
-                width: parent.width
-                height: 150
-                spacing: 24
+                spacing: 40
+                topPadding: 10
+                bottomPadding: 6
 
-                Item {
-                    width: 150
-                    height: 150
-
-                    Image {
-                        anchors.centerIn: parent
-                        source: page.homeDir ? "file://" + page.homeDir + "/.config/quickshell/imgs/pfp3.png" : ""
-                        width: 140
-                        height: 140
-                        fillMode: Image.PreserveAspectFit
-                        smooth: true
-                        mipmap: true
-                        asynchronous: true
-                        opacity: Theme.bg.a
-                    }
-                }
+                PixelN { px: 11; anchors.top: parent.top; anchors.topMargin: 6 }
 
                 Column {
-                    anchors.verticalCenter: parent.verticalCenter
-                    spacing: 14
-                    InfoRow { icon: "󰣇"; label: "OS"; value: page.os }
-                    InfoRow { icon: "󱂬"; label: "WM"; value: page.wm }
-                    InfoRow { icon: "󰔛"; label: "Uptime"; value: page.uptime }
+                    spacing: 5
+                    Row {
+                        Text { text: page.user; color: Theme.accent; font.family: page.mono; font.pixelSize: 15; font.bold: true }
+                        Text { text: "@"; color: Theme.textFaint; font.family: page.mono; font.pixelSize: 15; font.bold: true }
+                        Text { text: page.host; color: Theme.accent; font.family: page.mono; font.pixelSize: 15; font.bold: true }
+                    }
+                    Text {
+                        text: "-".repeat((page.user + "@" + page.host).length)
+                        color: Theme.textFaint; font.family: page.mono; font.pixelSize: 15
+                    }
+                    Fact { k: "host";     v: page.model }
+                    Fact { k: "os";       v: page.os }
+                    Fact { k: "kernel";   v: page.kernel }
+                    Fact { k: "wm";       v: page.wm }
+                    Fact { k: "shell";    v: page.shell }
+                    Fact { k: "packages"; v: page.pkgs }
+                    Fact { k: "uptime";   v: page.uptime }
+                    Fact { k: "cpu";      v: page.cpu + (page.cpuCores ? " (" + page.cpuCores + ")" : "") }
+                    Fact { k: "gpu";      v: page.gpu }
+                    Fact { k: "battery";  v: page.battery }
+                    // colour blocks, like the bottom of a neofetch
+                    Row {
+                        topPadding: 8
+                        Repeater {
+                            model: [Theme.bgPanel, Theme.bgCard, Theme.border, Theme.textFaint, Theme.textDim, Theme.text, Theme.accent2, Theme.accent, Theme.ok, Theme.danger]
+                            Rectangle { required property color modelData; width: 22; height: 12; color: modelData }
+                        }
+                    }
                 }
             }
 
-            HardwareGraph {
-                icon: "󰍛"
-                label: "CPU"
-                valueText: page.cpu
-                badges: [Math.round(page.cpuUsage) + "%", page.cpuTemp]
-                history: page.cpuHistory
-            }
-            HardwareGraph {
-                icon: "󰘚"
-                label: "RAM"
-                valueText: page.memory
-                badges: [page.ramSpeed, Math.round(page.memoryUsage) + "%"]
-                history: page.memoryHistory
-            }
-            HardwareGraph {
-                icon: "󰢮"
-                label: "GPU"
-                valueText: page.gpu
-                badges: [Math.round(page.gpuUsage) + "%", page.gpuTemp]
-                history: page.gpuHistory
+            Rectangle { width: parent.width; height: 1; color: Theme.border; opacity: 0.6 }
+
+            Column {
+                width: parent.width
+                spacing: 12
+                topPadding: 4
+                Meter { label: "cpu"; value: page.cpuUsage;    extra: [page.cpuTemp, page.cpuFreq].filter(s => s).join(" · ") }
+                Meter { label: "mem"; value: page.memoryUsage; extra: page.memory }
+                Meter { label: "gpu"; value: page.gpuUsage;    extra: page.gpuFreq }
             }
         }
-    }
-
-    Text {
-        id: clock
-        anchors.top: parent.top
-        anchors.right: parent.right
-        anchors.rightMargin: page.rightMargin
-        text: page.currentTime
-        color: Theme.text
-        font.family: page.mono
-        font.pixelSize: 18
     }
 }

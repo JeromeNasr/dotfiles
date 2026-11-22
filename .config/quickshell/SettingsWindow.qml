@@ -592,6 +592,14 @@ PanelWindow {
                         Component.onCompleted: opacity = 1
                         onSourceChanged: fadeIn.restart()
 
+                        // pages with live polling (System) pause it while Settings is closed
+                        Binding {
+                            target: pageLoader.item
+                            property: "live"
+                            value: root.showing
+                            when: pageLoader.item !== null && pageLoader.item.live !== undefined
+                        }
+
                         Behavior on opacity {
                             NumberAnimation {
                                 duration: Theme.animMed

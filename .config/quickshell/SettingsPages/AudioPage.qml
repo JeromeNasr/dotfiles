@@ -1,278 +1,245 @@
+// AudioPage.qml — output / input device + volume, and per-app volume.
+// Same look as the System page: mono labels, block-segment bars, no boxes.
+// Bars: click or drag to set, scroll for ±5%.
 import QtQuick
-import QtQuick.Controls
+import Quickshell.Io
 import Quickshell.Services.Pipewire
 import "../"
 
 Item {
     id: page
-    property real marginLeft: 0
-    property real marginRight: 45
-    property real marginTop: 0
-    property real marginBottom: 0
-    property real sliderMarginRight: 10
-    property real sectionSpacing: 6
+    readonly property int rightMargin: 46
+    readonly property string mono: "JetBrainsMono Nerd Font"
+    // set by SettingsWindow; port availability is only re-checked while Settings is open
+    property bool live: true
+
     PwObjectTracker { objects: Pipewire.nodes.values }
-    property var sink: Pipewire.defaultAudioSink
-    property real volume: sink?.audio?.volume ?? 0
-    property bool muted: sink?.audio?.muted ?? false
-    property var source: Pipewire.defaultAudioSource
-    property real inputVolume: source?.audio?.volume ?? 0
-    property bool inputMuted: source?.audio?.muted ?? false
-    property var outputSinks: Pipewire.nodes.values.filter(n => n.isSink && !n.isStream && n.audio)
-    property var inputSources: Pipewire.nodes.values.filter(n => !n.isSink && !n.isStream && n.audio)
-    property var appStreams: Pipewire.nodes.values.filter(n => n.isStream && n.isSink)
 
-    Flickable {
-        id: flick
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.bottom: parent.bottom
-        anchors.leftMargin: page.marginLeft
-        anchors.rightMargin: page.marginRight
-        anchors.topMargin: page.marginTop
-        anchors.bottomMargin: page.marginBottom
-        contentWidth: width
-        contentHeight: content.implicitHeight
-        clip: true
-        boundsBehavior: Flickable.StopAtBounds
+    readonly property var sink: Pipewire.defaultAudioSink
+    readonly property var source: Pipewire.defaultAudioSource
+    readonly property var nodes: Pipewire.nodes.values
+    readonly property var outputs: nodes.filter(n => n.audio && n.isSink && !n.isStream)
+    readonly property var inputs: nodes.filter(n => n.audio && !n.isSink && !n.isStream)
+    // apps playing sound (Quickshell reports playback streams with isSink == true)
+    readonly property var appStreams: nodes.filter(n => n.audio && n.isStream && n.isSink)
 
-        ScrollBar.vertical: ScrollBar {
-            id: scrollBar
-            policy: ScrollBar.AsNeeded
-            width: 6
+    // node names whose active port is "not available" (HDMI with nothing plugged in, …)
+    property var unplugged: ({})
+    property bool showUnplugged: false
 
-            background: Rectangle {
-                color: "transparent"
-                radius: width / 2
-            }
+    function shortName(n) { return n ? (n.nickname || n.description || n.name || "unknown") : "unknown" }
+    function appName(n) { const p = n.properties || {}; return p["application.name"] || n.description || n.name || "unknown" }
+    function appDetail(n) { const m = (n.properties || {})["media.name"] || ""; return m !== appName(n) ? m : "" }
+    function setVol(n, v) { if (n?.audio) { n.audio.muted = false; n.audio.volume = Math.max(0, Math.min(1, v)) } }
+    function toggleMute(n) { if (n?.audio) n.audio.muted = !n.audio.muted }
 
-            contentItem: Rectangle {
-                color: "transparent"
-                radius: width / 2
+    Process {
+        id: portCheck
+        command: ["sh", "-c", "pactl -f json list sinks 2>/dev/null; echo; pactl -f json list sources 2>/dev/null"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const out = {}
+                for (const chunk of text.split("\n")) {
+                    if (!chunk.trim().startsWith("[")) continue
+                    try {
+                        for (const d of JSON.parse(chunk)) {
+                            const port = (d.ports || []).find(p => p.name === d.active_port)
+                            if (port && port.availability === "not available") out[d.name] = true
+                        }
+                    } catch (e) {}
+                }
+                page.unplugged = out
             }
         }
+    }
+    // re-check when devices come and go (HDMI, headphones, bluetooth)
+    onNodesChanged: if (live) recheck.restart()
+    onLiveChanged: if (live) recheck.restart()
+    Timer { id: recheck; interval: 300; onTriggered: portCheck.running = true }
+    Component.onCompleted: portCheck.running = true
+
+    // ---------- pieces ----------
+    // block-segment volume bar; hovering previews where a click would land
+    component Blocks: Item {
+        id: bk
+        property real value: 0
+        property bool dim: false
+        signal picked(real v)
+        readonly property int segs: Math.max(8, Math.floor((width + 2) / 8))
+        readonly property int lit: Math.round(Math.min(1, value) * segs)
+        readonly property int hoverAt: ma.containsMouse ? Math.ceil(ma.mouseX / width * segs) : -1
+        height: 18
+
+        function at(x) { return Math.max(0, Math.min(1, Math.ceil(x / width * segs) / segs)) }
+
+        Row {
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 2
+            Repeater {
+                model: bk.segs
+                Rectangle {
+                    required property int index
+                    width: 6; height: 12
+                    antialiasing: false
+                    color: index < bk.lit ? (bk.dim ? Theme.alpha(Theme.textFaint, 0.55) : Theme.accent)
+                         : index < bk.hoverAt ? Theme.alpha(Theme.accent, 0.35)
+                         : Theme.alpha(Theme.textFaint, 0.18)
+                }
+            }
+        }
+        MouseArea {
+            id: ma
+            anchors.fill: parent
+            hoverEnabled: true
+            preventStealing: true
+            cursorShape: Qt.PointingHandCursor
+            onPressed: m => bk.picked(bk.at(m.x))
+            onPositionChanged: m => { if (pressed) bk.picked(bk.at(m.x)) }
+        }
+        WheelHandler { onWheel: e => bk.picked(Math.max(0, Math.min(1, bk.value + (e.angleDelta.y > 0 ? 0.05 : -0.05)))) }
+    }
+
+    // label · bar · % · mute
+    component VolLine: Item {
+        id: vl
+        property var node: null
+        property string label: ""
+        property string sub: ""
+        property int labelWidth: 84
+        readonly property bool muted: node?.audio?.muted ?? false
+        readonly property real vol: node?.audio?.volume ?? 0
+        width: parent.width
+        height: sub !== "" ? 32 : 20
+
+        Column {
+            id: lab
+            anchors.verticalCenter: parent.verticalCenter
+            width: vl.labelWidth
+            Text { width: parent.width - 8; text: vl.label; elide: Text.ElideRight; color: Theme.accent; font.family: page.mono; font.pixelSize: 12 }
+            Text { width: parent.width - 8; visible: vl.sub !== ""; text: vl.sub; elide: Text.ElideRight; color: Theme.textFaint; font.family: page.mono; font.pixelSize: 10 }
+        }
+        Blocks {
+            anchors { left: lab.right; right: pctText.left; rightMargin: 10; verticalCenter: parent.verticalCenter }
+            value: vl.vol
+            dim: vl.muted
+            enabled: !!vl.node?.audio
+            onPicked: v => page.setVol(vl.node, v)
+        }
+        Text {
+            id: pctText
+            anchors { right: muteText.left; rightMargin: 14; verticalCenter: parent.verticalCenter }
+            width: 40; horizontalAlignment: Text.AlignRight
+            text: vl.node ? Math.round(vl.vol * 100) + "%" : "—"
+            color: vl.muted ? Theme.textFaint : Theme.text; font.family: page.mono; font.pixelSize: 12
+        }
+        Text {
+            id: muteText
+            anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+            width: 44; horizontalAlignment: Text.AlignRight
+            text: vl.muted ? "muted" : "mute"
+            color: vl.muted ? Theme.danger : mma.containsMouse ? Theme.text : Theme.textFaint
+            font.family: page.mono; font.pixelSize: 11; font.underline: mma.containsMouse
+            MouseArea { id: mma; anchors.fill: parent; anchors.margins: -4; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: page.toggleMute(vl.node) }
+        }
+    }
+
+    // device picker:  ● Headphones / ○ Digital Microphone / + 3 unplugged
+    component Devices: Column {
+        id: dv
+        property var devices: []
+        property var current: null
+        property bool isOutput: true
+        readonly property var hidden: devices.filter(d => page.unplugged[d.name] && d.id !== current?.id)
+        readonly property var shown: devices.filter(d => !page.unplugged[d.name] || d.id === current?.id)
+                                            .concat(page.showUnplugged ? hidden : [])
+        x: 84
+        width: parent.width - 84
+        spacing: 3
+
+        Repeater {
+            model: dv.shown
+            Text {
+                id: row
+                required property var modelData
+                readonly property bool active: dv.current?.id === modelData.id
+                readonly property bool gone: !!page.unplugged[modelData.name]
+                text: (active ? "● " : "○ ") + page.shortName(modelData) + (gone ? "  (unplugged)" : "")
+                color: active ? Theme.text : hov.containsMouse ? Theme.textDim : Theme.textFaint
+                font.family: page.mono; font.pixelSize: 12
+                MouseArea {
+                    id: hov
+                    anchors.fill: parent; hoverEnabled: true
+                    cursorShape: row.active ? Qt.ArrowCursor : Qt.PointingHandCursor
+                    onClicked: if (!row.active) {
+                        if (dv.isOutput) Pipewire.preferredDefaultAudioSink = row.modelData
+                        else Pipewire.preferredDefaultAudioSource = row.modelData
+                    }
+                }
+            }
+        }
+        Text {
+            visible: dv.devices.length === 0
+            text: dv.isOutput ? "no outputs" : "no inputs"
+            color: Theme.textFaint; font.family: page.mono; font.pixelSize: 12
+        }
+        Text {
+            visible: dv.hidden.length > 0
+            text: (page.showUnplugged ? "- hide " : "+ ") + dv.hidden.length + " unplugged"
+            color: fma.containsMouse ? Theme.textDim : Theme.textFaint
+            font.family: page.mono; font.pixelSize: 11; topPadding: 2
+            MouseArea { id: fma; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: page.showUnplugged = !page.showUnplugged }
+        }
+    }
+
+    // ---------- layout ----------
+    Flickable {
+        id: flick
+        anchors { fill: parent; rightMargin: page.rightMargin }
+        contentWidth: width
+        contentHeight: content.implicitHeight + 8
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
 
         Column {
             id: content
             width: flick.width
             spacing: 14
 
+            Text { text: "Audio"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: 19 }
+            Rectangle { width: parent.width; height: 1; color: Theme.border }
+
+            Item { width: 1; height: 2 }
+            VolLine { node: page.sink; label: "output" }
+            Devices { devices: page.outputs; current: page.sink; isOutput: true }
+
+            Item { width: 1; height: 6 }
+            VolLine { node: page.source; label: "input" }
+            Devices { devices: page.inputs; current: page.source; isOutput: false }
+
+            Item { width: 1; height: 4 }
+            Rectangle { width: parent.width; height: 1; color: Theme.border; opacity: 0.6 }
+
             Text {
-                text: "Audio"; color: Theme.text
-                font.family: Theme.fontFamily; font.pixelSize: 19
+                text: "apps" + (page.appStreams.length ? "  " + page.appStreams.length : "")
+                color: Theme.textDim; font.family: page.mono; font.pixelSize: 12
             }
-
-            Rectangle { width: parent.width; height: 1; color: Theme.border }
-
-            // OUTPUT: icon + label + slider
-            Row {
-                width: parent.width; height: 48; spacing: 8
-                Rectangle {
-                    width: 28; height: 28; radius: Theme.radius; anchors.verticalCenter: parent.verticalCenter
-                    color: page.muted ? Theme.alpha(Theme.danger, 0.15) : Theme.alpha(Theme.accent, 0.10)
-                    border.width: 1; border.color: page.muted ? Theme.danger : Theme.border
-                    Text {
-                        anchors.centerIn: parent
-                        text: page.muted ? "\uf026" : "\uf028"
-                        color: page.muted ? Theme.danger : Theme.accent
-                        font.family: Theme.iconFont; font.pixelSize: 12
-                    }
-                    MouseArea {
-                        anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                        onClicked: if (page.sink?.audio) page.sink.audio.muted = !page.sink.audio.muted
-                    }
-                }
-                Text {
-                    width: 76; anchors.verticalCenter: parent.verticalCenter
-                    text: "Output"; color: Theme.text
-                    font.family: Theme.fontFamily; font.pixelSize: 15
-                }
-                Slider {
-                    width: parent.width - 28 - 76 - 8 - page.sliderMarginRight
-                    height: 72; anchors.verticalCenter: parent.verticalCenter
-                    label: ""; icon: ""; value: page.muted ? 0 : page.volume
-                    onCommitted: v => { if (page.sink?.audio) { page.sink.audio.muted = false; page.sink.audio.volume = v } }
-                }
-            }
-
             Column {
-                width: parent.width; spacing: page.sectionSpacing
-                Repeater {
-                    model: page.outputSinks
-                    delegate: Rectangle {
-                        required property var modelData
-                        property var output: modelData
-                        property bool active: page.sink?.id === output?.id
-                        width: parent.width; height: 40; radius: Theme.radius
-                        color: active ? Theme.alpha(Theme.accent, 0.10) : "transparent"
-                        border.width: 1; border.color: active ? Theme.accent : Theme.border
-
-                        Row {
-                            anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 10; spacing: 8
-                            Text {
-                                width: 20; anchors.verticalCenter: parent.verticalCenter
-                                text: active ? "\uf192" : "\uf10c"; color: active ? Theme.accent : Theme.textFaint
-                                font.family: Theme.iconFont; font.pixelSize: 11
-                            }
-                            Text {
-                                width: parent.width - 28; anchors.verticalCenter: parent.verticalCenter
-                                text: (output?.description || output?.nickname || output?.name || "Unknown output")
-                                color: active ? Theme.accent : Theme.text
-                                font.family: Theme.fontFamily; font.pixelSize: 10; elide: Text.ElideRight
-                            }
-                        }
-
-                        MouseArea {
-                            anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                            onClicked: if (output) Pipewire.preferredDefaultAudioSink = output
-                        }
-                    }
-                }
-                Text {
-                    visible: page.outputSinks.length === 0
-                    text: "No audio outputs"; color: Theme.textFaint; leftPadding: 4
-                    font.family: Theme.fontFamily; font.pixelSize: 10
-                }
-            }
-
-            // INPUT: icon + label + slider
-            Row {
-                width: parent.width; height: 48; spacing: 8
-                Rectangle {
-                    width: 28; height: 28; radius: Theme.radius; anchors.verticalCenter: parent.verticalCenter
-                    color: page.inputMuted ? Theme.alpha(Theme.danger, 0.15) : Theme.alpha(Theme.accent, 0.10)
-                    border.width: 1; border.color: page.inputMuted ? Theme.danger : Theme.border
-                    Text {
-                        anchors.centerIn: parent
-                        text: page.inputMuted ? "\uf131" : "\uf130"
-                        color: page.inputMuted ? Theme.danger : Theme.accent
-                        font.family: Theme.iconFont; font.pixelSize: 12
-                    }
-                    MouseArea {
-                        anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                        onClicked: if (page.source?.audio) page.source.audio.muted = !page.source.audio.muted
-                    }
-                }
-                Text {
-                    width: 76; anchors.verticalCenter: parent.verticalCenter
-                    text: "Input"; color: Theme.text
-                    font.family: Theme.fontFamily; font.pixelSize: 15
-                }
-                Slider {
-                    width: parent.width - 28 - 76 - 8 - page.sliderMarginRight
-                    height: 72; anchors.verticalCenter: parent.verticalCenter
-                    label: ""; icon: ""; value: page.inputMuted ? 0 : page.inputVolume
-                    onCommitted: v => { if (page.source?.audio) { page.source.audio.muted = false; page.source.audio.volume = v } }
-                }
-            }
-
-            Column {
-                width: parent.width; spacing: page.sectionSpacing
-                Repeater {
-                    model: page.inputSources
-                    delegate: Rectangle {
-                        required property var modelData
-                        property var input: modelData
-                        property bool active: page.source?.id === input?.id
-                        width: parent.width; height: 40; radius: Theme.radius
-                        color: active ? Theme.alpha(Theme.accent, 0.10) : "transparent"
-                        border.width: 1; border.color: active ? Theme.accent : Theme.border
-
-                        Row {
-                            anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 10; spacing: 8
-                            Text {
-                                width: 20; anchors.verticalCenter: parent.verticalCenter
-                                text: active ? "\uf192" : "\uf10c"; color: active ? Theme.accent : Theme.textFaint
-                                font.family: Theme.iconFont; font.pixelSize: 11
-                            }
-                            Text {
-                                width: parent.width - 28; anchors.verticalCenter: parent.verticalCenter
-                                text: (input?.description || input?.nickname || input?.name || "Unknown input")
-                                color: active ? Theme.accent : Theme.text
-                                font.family: Theme.fontFamily; font.pixelSize: 10; elide: Text.ElideRight
-                            }
-                        }
-
-                        MouseArea {
-                            anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                            onClicked: if (input) Pipewire.preferredDefaultAudioSource = input
-                        }
-                    }
-                }
-                Text {
-                    visible: page.inputSources.length === 0
-                    text: "No audio inputs"; color: Theme.textFaint; leftPadding: 4
-                    font.family: Theme.fontFamily; font.pixelSize: 10
-                }
-            }
-
-            Rectangle { width: parent.width; height: 1; color: Theme.border }
-
-            Row {
-                width: parent.width; spacing: 10
-                Text {
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: "Per-app volume"; color: Theme.text
-                    font.family: Theme.fontFamily; font.pixelSize: 14
-                }
-                Text {
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: page.appStreams.length; color: Theme.textFaint
-                    font.family: Theme.fontFamily; font.pixelSize: 10
-                }
-            }
-
-            Column {
-                width: parent.width; spacing: page.sectionSpacing
+                width: parent.width
+                spacing: 12
                 Repeater {
                     model: page.appStreams
-                    delegate: Rectangle {
+                    VolLine {
                         required property var modelData
-                        property var stream: modelData
-                        property bool streamMuted: stream?.audio?.muted ?? false
-                        property real streamVolume: stream?.audio?.volume ?? 0
-                        width: parent.width; height: 48; radius: Theme.radius
-                        color: streamMuted ? Theme.alpha(Theme.danger, 0.06) : "transparent"
-                        border.width: 1
-                        border.color: streamMuted ? Theme.alpha(Theme.danger, 0.5) : Theme.border
-
-                        Row {
-                            anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 14; spacing: 6
-                            Rectangle {
-                                width: 28; height: 28; radius: Theme.radius; anchors.verticalCenter: parent.verticalCenter
-                                color: streamMuted ? Theme.alpha(Theme.danger, 0.15) : Theme.alpha(Theme.accent, 0.10)
-                                border.width: 1; border.color: streamMuted ? Theme.danger : Theme.border
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: streamMuted ? "\uf026" : "\uf028"
-                                    color: streamMuted ? Theme.danger : Theme.accent
-                                    font.family: Theme.iconFont; font.pixelSize: 12
-                                }
-                                MouseArea {
-                                    anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                                    onClicked: if (stream?.audio) stream.audio.muted = !stream.audio.muted
-                                }
-                            }
-                            Text {
-                                width: 82; anchors.verticalCenter: parent.verticalCenter
-                                text: (stream?.description || stream?.name || "Unknown app")
-                                color: streamMuted ? Theme.textDim : Theme.text
-                                font.family: Theme.fontFamily; font.pixelSize: 11; elide: Text.ElideRight
-                            }
-                            Slider {
-                                width: parent.width - 28 - 82 - 12 - page.sliderMarginRight
-                                height: 72; anchors.verticalCenter: parent.verticalCenter
-                                label: ""; icon: ""; value: streamMuted ? 0 : streamVolume
-                                onCommitted: v => { if (stream?.audio) { stream.audio.muted = false; stream.audio.volume = v } }
-                            }
-                        }
+                        node: modelData
+                        label: page.appName(modelData)
+                        sub: page.appDetail(modelData)
+                        labelWidth: 150
                     }
                 }
                 Text {
                     visible: page.appStreams.length === 0
-                    text: "No active audio streams"; color: Theme.textDim; leftPadding: 4
-                    font.family: Theme.fontFamily; font.pixelSize: 10
+                    text: "nothing playing"
+                    color: Theme.textFaint; font.family: page.mono; font.pixelSize: 12
                 }
             }
         }

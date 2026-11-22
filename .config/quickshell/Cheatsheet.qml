@@ -59,8 +59,8 @@ ShellPopup {
     Rectangle {
         id: card
         anchors.centerIn: parent
-        width: Math.min(root.width - 32, 1180)
-        height: Math.min(root.height - 48, head.height + grid.implicitHeight + 56 * root.k)
+        width: Math.min(root.sw - 32, 1180)
+        height: Math.min(root.sh - 48, head.height + grid.implicitHeight + 56 * root.k)
         radius: 18
         color: Theme.bgPanel
         border.width: 1

@@ -160,15 +160,15 @@ ShellPopup {
     function toggleDnd() { dnd = !dnd; stateTimer.restart(); }
 
     function setPosition(x, y) {
-        if (root.width <= 0 || root.height <= 0) {
+        if (root.sw <= 0 || root.sh <= 0) {
             root.offsetX = x;
             root.offsetY = y;
             return;
         }
         const maxX = root.sideGap - root.edgeGap;
-        const minX = Math.min(maxX, root.cardWidth + root.sideGap + root.edgeGap - root.width);
+        const minX = Math.min(maxX, root.cardWidth + root.sideGap + root.edgeGap - root.sw);
         const minY = root.edgeGap + root.px(14) - root.topGap;
-        const maxY = Math.max(minY, root.height - panel.height - root.edgeGap - root.topGap);
+        const maxY = Math.max(minY, root.sh - panel.height - root.edgeGap - root.topGap);
         root.offsetX = Math.max(minX, Math.min(maxX, x));
         root.offsetY = Math.max(minY, Math.min(maxY, y));
     }
@@ -596,7 +596,7 @@ ShellPopup {
                 id: list
                 visible: history.count > 0
                 width: parent.width
-                height: Math.min(contentHeight, root.height - root.topGap - root.px(120))
+                height: Math.min(contentHeight, root.sh - root.topGap - root.px(120))
                 clip: true
                 spacing: root.px(8)
                 model: history

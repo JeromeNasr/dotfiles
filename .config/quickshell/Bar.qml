@@ -112,8 +112,10 @@ Scope {
         return h > 0 ? h + "h " + m + "m" : m + "m";
     }
     readonly property bool batLow: battery !== null && !batCharging && batPct <= 15
-    readonly property var batIcons: ["\uf244", "\uf243", "\uf242", "\uf241", "\uf240"]
-    readonly property string batIcon: batIcons[batPct >= 90 ? 4 : batPct >= 65 ? 3 : batPct >= 40 ? 2 : batPct >= 15 ? 1 : 0]
+    // one icon that shows the level in 10 % steps, with the bolt built in while charging
+    readonly property var batIcons: [0xF008E, 0xF007A, 0xF007B, 0xF007C, 0xF007D, 0xF007E, 0xF007F, 0xF0080, 0xF0081, 0xF0082, 0xF0079]
+    readonly property var batIconsCharging: [0xF089F, 0xF089C, 0xF0086, 0xF0087, 0xF0088, 0xF089D, 0xF0089, 0xF089E, 0xF008A, 0xF008B, 0xF0085]
+    readonly property string batIcon: String.fromCodePoint((batCharging ? batIconsCharging : batIcons)[Math.max(0, Math.min(10, Math.round(batPct / 10)))])
 
     // ---- power profile (native, follows changes made anywhere) ----
     readonly property var profileOrder: PowerProfiles.hasPerformanceProfile
@@ -121,10 +123,10 @@ Scope {
         : [PowerProfile.PowerSaver, PowerProfile.Balanced]
     readonly property string profileName: PowerProfiles.profile === PowerProfile.PowerSaver ? "Power saver"
         : PowerProfiles.profile === PowerProfile.Performance ? "Performance" : "Balanced"
-    readonly property string profileIcon: PowerProfiles.profile === PowerProfile.PowerSaver ? "\uf06c"
-        : PowerProfiles.profile === PowerProfile.Performance ? "\uf135" : "\uf24e"
-    readonly property color profileColor: PowerProfiles.profile === PowerProfile.PowerSaver ? Theme.ok
-        : PowerProfiles.profile === PowerProfile.Performance ? Theme.accent : Theme.text
+    // speedometer: needle low / middle / high
+    readonly property string profileIcon: String.fromCodePoint(PowerProfiles.profile === PowerProfile.PowerSaver ? 0xF0F86
+        : PowerProfiles.profile === PowerProfile.Performance ? 0xF04C5 : 0xF0F85)
+    readonly property color profileColor: Theme.text
     property bool profileFlash: false
     Timer { id: profileFlashTimer; interval: 1800; onTriggered: root.profileFlash = false }
     function cycleProfile(d) {
@@ -276,6 +278,7 @@ Scope {
     property int cpuUsage: 0
     property int memPercent: 0
     property string netState: "disconnected"
+    property int netSignal: 0
     property real _prevTotal: 0
     property real _prevIdle: 0
 
@@ -307,15 +310,18 @@ Scope {
 
     Process {
         id: netProc
-        command: ["nmcli", "-t", "-f", "TYPE,STATE", "device"]
+        command: ["sh", "-c", "nmcli -t -f TYPE,STATE device; echo '#'; nmcli -t -f IN-USE,SIGNAL device wifi list --rescan no 2>/dev/null | grep '^\\*'"]
         stdout: StdioCollector {
             onStreamFinished: {
+                const [devs, active] = text.split("\n#\n");
                 let s = "disconnected";
-                for (const l of text.split("\n")) {
+                for (const l of (devs || "").split("\n")) {
                     if (l === "ethernet:connected") { s = "ethernet"; break; }
                     if (l === "wifi:connected") s = "wifi";
                 }
                 if (s !== root.netState) root.netState = s;
+                const sig = parseInt(((active || "").trim().split(":")[1]) || "0");
+                if (!isNaN(sig) && sig !== root.netSignal) root.netSignal = sig;
             }
         }
     }
@@ -795,7 +801,7 @@ Scope {
         Mod {
             baseSize: root.sizeVolText
             glyphSize: root.sizeVolIcon
-            glyph: "\uDB80\uDCE0"
+            glyph: "\uDB81\uDD99"   // weather-sunny; the old brightness glyph looked like the settings gear
             vtext: ""
             onScrolled: delta => {
                 const step = Math.max(1, Math.round(Math.abs(delta) / 120 * 5));
@@ -810,7 +816,7 @@ Scope {
         Mod {
             baseSize: root.sizeBatText
             glyphSize: root.sizeBatIcon
-            glyph: (root.batCharging ? "\uf0e7 " : "") + root.batIcon
+            glyph: root.batIcon
             vglyph: root.batIcon
             text: root.batPct + "%"
             vtext: root.batPct + ""
@@ -828,7 +834,9 @@ Scope {
             baseSize: root.sizeNetIcon
             yOffset: root.iconYOffset
             id: netMod
-            text: root.netState === "wifi" ? "\uDB81\uDDA9"
+            // wifi shows its signal strength (4 steps); ethernet; no connection
+            text: root.netState === "wifi"
+                ? String.fromCodePoint(root.netSignal >= 75 ? 0xF0928 : root.netSignal >= 50 ? 0xF0925 : root.netSignal >= 25 ? 0xF0922 : 0xF091F)
                 : root.netState === "ethernet" ? "\uDB80\uDE00" : "\uDB81\uDDAA"
             tip: "left: quick wi-fi & bluetooth · right: network settings"
             // left: quick menu under the icon; right: full Network settings

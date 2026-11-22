@@ -54,15 +54,15 @@ ShellPopup {
     }
 
     function setPosition(x, y) {
-        if (root.width <= 0 || root.height <= 0) {
+        if (root.sw <= 0 || root.sh <= 0) {
             root.offsetX = x
             root.offsetY = y
             return
         }
         var maxX = root.sideGap
-        var minX = Math.min(maxX, root.cardWidth + 2 * root.sideGap - root.width)
+        var minX = Math.min(maxX, root.cardWidth + 2 * root.sideGap - root.sw)
         var minY = 0
-        var maxY = Math.max(minY, root.height - panel.height - 2 * root.topGap)
+        var maxY = Math.max(minY, root.sh - panel.height - 2 * root.topGap)
         root.offsetX = Math.max(minX, Math.min(maxX, x))
         root.offsetY = Math.max(minY, Math.min(maxY, y))
     }
@@ -438,7 +438,7 @@ ShellPopup {
                     id: list
                     visible: todos.count > 0
                     width: parent.width
-                    height: Math.max(0, Math.min(contentHeight, root.height - root.topGap - root.offsetY - root.px(240)))
+                    height: Math.max(0, Math.min(contentHeight, root.sh - root.topGap - root.offsetY - root.px(240)))
                     clip: true
                     spacing: root.px(8)
                     model: todos

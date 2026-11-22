@@ -295,17 +295,17 @@ ShellPopup {
     // keeping at least `keepVisible` px on screen. Top is kept on screen so the
     // drag handle always stays reachable.
     function setPosition(x, y) {
-        if (root.width <= 0 || root.height <= 0) {
+        if (root.sw <= 0 || root.sh <= 0) {
             root.offsetX = x
             root.offsetY = y
             return
         }
         var s = root.menuSize / 100
         var kv = root.keepVisible
-        var minX = kv - root.width + root.sideGap
+        var minX = kv - root.sw + root.sideGap
         var maxX = root.sideGap + root.cardWidth * s - kv
         var minY = root.edgeGap - root.topGap
-        var maxY = Math.max(minY, root.height - kv - root.topGap)
+        var maxY = Math.max(minY, root.sh - kv - root.topGap)
         root.offsetX = Math.max(minX, Math.min(maxX, x))
         root.offsetY = Math.max(minY, Math.min(maxY, y))
     }

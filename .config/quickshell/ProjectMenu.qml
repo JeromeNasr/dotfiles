@@ -191,7 +191,7 @@ ShellPopup {
         Rectangle {
             id: card
             width: 640
-            height: Math.min(root.height - 80, 780)
+            height: Math.min(root.sh - 80, 780)
             anchors.horizontalCenter: parent.horizontalCenter
             y: (parent.height - height) / 2 + (1 - root.prog) * 14
             radius: 16

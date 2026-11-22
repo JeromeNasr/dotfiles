@@ -1,0 +1,26 @@
+#!/bin/sh
+# bright — screen brightness on a 0–100 scale where 0 is the dimmest *visible* level, not off.
+#   bright get            -> current level (0-100)
+#   bright set N          -> set level N
+#   bright up N | down N  -> change by N
+#   bright off            -> turn the screen off (laptop keeps running); any key / mouse wakes it
+# The backlight is never driven below FLOOR % of its range: lower than that the panel looks
+# switched off. Use `bright off` when you actually want the screen dark.
+FLOOR=5
+
+raw() { brightnessctl -m | cut -d, -f4 | tr -d '%'; }
+# raw % -> level, level -> raw %   (level = (raw - FLOOR) * 100 / (100 - FLOOR))
+# (rounded, so get -> set round-trips without drifting)
+to_level() { l=$(( (($1 - FLOOR) * 100 + (100 - FLOOR) / 2) / (100 - FLOOR) )); [ "$l" -lt 0 ] && l=0; [ "$l" -gt 100 ] && l=100; echo "$l"; }
+to_raw()   { echo $(( FLOOR + ($1 * (100 - FLOOR) + 50) / 100 )); }
+clamp()    { v=$1; [ "$v" -lt 0 ] && v=0; [ "$v" -gt 100 ] && v=100; echo "$v"; }
+
+case "$1" in
+  get|"") to_level "$(raw)" ;;
+  set)  l=$(clamp "${2:-50}"); brightnessctl -q set "$(to_raw "$l")%"; echo "$l" ;;
+  up)   l=$(clamp $(( $(to_level "$(raw)") + ${2:-5} ))); brightnessctl -q set "$(to_raw "$l")%"; echo "$l" ;;
+  down) l=$(clamp $(( $(to_level "$(raw)") - ${2:-5} ))); brightnessctl -q set "$(to_raw "$l")%"; echo "$l" ;;
+  off)  sleep 0.4   # let the click/keypress that triggered this finish, or it wakes the screen again
+        hyprctl dispatch 'hl.dsp.dpms({ action = "disable" })' >/dev/null ;;
+  *) echo "usage: bright get | set N | up N | down N | off"; exit 1 ;;
+esac

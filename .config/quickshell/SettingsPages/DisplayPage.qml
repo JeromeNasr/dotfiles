@@ -19,15 +19,16 @@ Item {
     readonly property var activeMonitors: monitors.filter(m => !m.disabled)
 
     // ---------- brightness ----------
+    // hypr/bin/bright: 0-100 where 0 is the dimmest *visible* level; "screen off" is separate
+    readonly property string brightBin: Quickshell.env("HOME") + "/.config/hypr/bin/bright"
     property real brightness: 0
     property bool brightDragging: false
     Process {
         id: brightnessGet
-        command: ["brightnessctl", "-m"]
+        command: [page.brightBin, "get"]
         stdout: StdioCollector {
             onStreamFinished: {
-                const parts = text.trim().split(",")
-                const pct = parseInt(parts[3])
+                const pct = parseInt(text.trim())
                 if (!isNaN(pct) && !page.brightDragging) page.brightness = pct / 100
             }
         }
@@ -39,7 +40,7 @@ Item {
     Timer {
         id: brightApply; interval: 40
         onTriggered: if (page.brightPending >= 0) {
-            Quickshell.execDetached(["brightnessctl", "-q", "set", Math.max(1, Math.round(page.brightPending * 100)) + "%"])
+            Quickshell.execDetached([page.brightBin, "set", String(Math.round(page.brightPending * 100))])
             page.brightPending = -1
         }
     }
@@ -562,12 +563,16 @@ Item {
                     id: brBar
                     anchors { left: bl.right; right: bp.left; rightMargin: 10; verticalCenter: parent.verticalCenter }
                     value: page.brightness
-                    onPicked: v => { page.brightDragging = brBar.pressed; page.setBrightness(Math.max(0.01, v)) }
+                    onPicked: v => { page.brightDragging = brBar.pressed; page.setBrightness(v) }
                     onReleased: page.brightDragging = false
                 }
-                Text { id: bp; anchors { right: parent.right; rightMargin: 58; verticalCenter: parent.verticalCenter }
+                Text { id: bp; anchors { right: soff.left; rightMargin: 14; verticalCenter: parent.verticalCenter }
                        width: 40; horizontalAlignment: Text.AlignRight
                        text: Math.round(page.brightness * 100) + "%"; color: Theme.text; font.family: page.mono; font.pixelSize: 12 }
+                // turn the panel off but keep everything running; any key or mouse movement wakes it
+                Act { id: soff; anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                      width: 76; horizontalAlignment: Text.AlignRight
+                      text: "screen off"; onClicked: Quickshell.execDetached([page.brightBin, "off"]) }
             }
 
             // night light: slider = colour temperature (left = warmer)
@@ -584,7 +589,7 @@ Item {
                        width: 44; horizontalAlignment: Text.AlignRight
                        text: NightState.temp + "K"; color: page.nightOn ? Theme.text : Theme.textFaint; font.family: page.mono; font.pixelSize: 12 }
                 Act { id: ntog; anchors { right: parent.right; verticalCenter: parent.verticalCenter }
-                      width: 44; horizontalAlignment: Text.AlignRight
+                      width: 76; horizontalAlignment: Text.AlignRight
                       text: page.nightOn ? "on" : "off"
                       lit: page.nightOn
                       onClicked: NightState.setOn(!page.nightOn) }

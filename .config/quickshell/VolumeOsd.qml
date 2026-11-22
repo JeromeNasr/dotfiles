@@ -48,7 +48,7 @@ PanelWindow {
     property bool showing: false
 
     // ---- brightness: same pill, shown when brightness changes (bar scroll, brightness keys,
-    //      `qs ipc call osd brightness 5%+`). Never goes below 2 % so the screen can't go black.
+    //      `qs ipc call osd brightness 5%+`). Uses hypr/bin/bright: 0 % is dim but visible.
     property string mode: "volume"          // what the pill is showing
     property real bright: 0
     property string pendingStep: ""
@@ -56,22 +56,26 @@ PanelWindow {
         id: pBright
         stdout: StdioCollector {
             onStreamFinished: {
-                const pct = parseInt((text.trim().split(",")[3] || "").replace("%", ""))
-                if (isNaN(pct)) return
-                root.bright = pct / 100
+                const lv = parseInt(text.trim().split("\n").pop())      // `bright` prints the new level
+                if (isNaN(lv)) return
+                root.bright = lv / 100
                 root.mode = "brightness"
                 root.showOsd()
             }
         }
         onExited: if (root.pendingStep !== "") { const s = root.pendingStep; root.pendingStep = ""; root.stepBrightness(s) }
     }
-    // step: "5%+", "5%-", "40%" …  (calls while one is running are coalesced, latest wins)
+    // step: "5%+", "5%-", "40%" …  on the `bright` scale, where 0 is the dimmest visible level
+    // (calls while one is running are coalesced, latest wins)
+    readonly property string brightBin: Quickshell.env("HOME") + "/.config/hypr/bin/bright"
     function stepBrightness(step) {
         if (pBright.running) { pendingStep = step; return }
-        pBright.command = ["sh", "-c", "brightnessctl -q -n2% set \"$1\"; brightnessctl -m", "sh", step]
+        const m = String(step).match(/^(\d+)%?([+-]?)$/)
+        if (!m) return
+        pBright.command = [brightBin, m[2] === "+" ? "up" : m[2] === "-" ? "down" : "set", m[1]]
         pBright.running = true
     }
-    function showBrightness() { pBright.command = ["brightnessctl", "-m"]; pBright.running = true }
+    function showBrightness() { pBright.command = [brightBin, "get"]; pBright.running = true }
     IpcHandler {
         target: "osd"
         function brightness(step: string): void { root.stepBrightness(step) }

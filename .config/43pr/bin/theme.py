@@ -327,6 +327,19 @@ def ensure_fallback():
 
 # ---------- commands ----------
 
+def link_lock_wallpaper(p):
+    """Point ~/.config/hypr/current_wallpaper (what hyprlock shows) at the wallpaper."""
+    link = Path.home() / ".config/hypr/current_wallpaper"
+    try:
+        link.parent.mkdir(parents=True, exist_ok=True)
+        tmp = link.with_name(link.name + ".tmp")
+        tmp.unlink(missing_ok=True)
+        tmp.symlink_to(p)
+        os.replace(tmp, link)
+    except OSError as e:
+        warn(f"could not update lock-screen wallpaper: {e}")
+
+
 def cmd_wallpaper(a):
     p = Path(a.path).expanduser()
     p = (p if p.is_absolute() else Path.cwd() / p).resolve()
@@ -341,6 +354,7 @@ def cmd_wallpaper(a):
         if not st.get("colorgen", True):
             st["wallpaper"] = str(p)          # remember it for when it's turned back on
             save_state(st)
+            link_lock_wallpaper(p)
             print("theme: color generation is off; wallpaper recorded only")
             return
         pinned = False
@@ -361,6 +375,7 @@ def cmd_wallpaper(a):
             die(f"theme unchanged: {e}")
         st["wallpaper"] = str(p)
         save_state(st)
+        link_lock_wallpaper(p)
     print("theme: applied from", "preset" if pinned else "wallpaper")
 
 

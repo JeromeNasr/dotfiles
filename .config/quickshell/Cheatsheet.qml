@@ -7,7 +7,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 
-PanelWindow {
+ShellPopup {
     id: root
 
     property bool showing: false
@@ -42,11 +42,7 @@ PanelWindow {
         }
     }
 
-    anchors { top: true; bottom: true; left: true; right: true }
-    color: "transparent"
-    visible: showing || prog > 0.003
-    exclusionMode: ExclusionMode.Ignore
-    WlrLayershell.layer: WlrLayer.Overlay
+    surfaceOpen: showing || prog > 0.003
     WlrLayershell.namespace: "cheatsheet"
     WlrLayershell.keyboardFocus: root.showing ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
     mask: Region { item: card }

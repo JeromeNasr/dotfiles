@@ -5,17 +5,13 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 
-PanelWindow {
+ShellPopup {
     id: root
     property bool showing: false
     property real prog: showing ? 1 : 0
     Behavior on prog { NumberAnimation { duration: root.showing ? 200 : 120; easing.type: Easing.OutCubic } }
 
-    anchors { top: true; bottom: true; left: true; right: true }
-    color: "transparent"
-    exclusionMode: ExclusionMode.Ignore
-    visible: showing || prog > 0.01
-    WlrLayershell.layer: WlrLayer.Overlay
+    surfaceOpen: showing || prog > 0.01
     WlrLayershell.namespace: "night-menu"
     mask: Region { item: root.showing ? catcher : null }
 

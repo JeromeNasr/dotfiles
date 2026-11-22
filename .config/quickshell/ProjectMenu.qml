@@ -7,7 +7,7 @@ import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Hyprland
 
-PanelWindow {
+ShellPopup {
     id: root
 
     property bool showing: false
@@ -15,7 +15,7 @@ PanelWindow {
     property bool mapped: false
     onShowingChanged: { if (showing) { unmapTimer.stop(); mapped = true } else unmapTimer.restart() }
     Timer { id: unmapTimer; interval: 700; onTriggered: root.mapped = false }
-    visible: mapped
+    surfaceOpen: mapped
     property real prog: showing ? 1 : 0
     Behavior on prog { NumberAnimation { duration: root.showing ? 260 : 150; easing.type: root.showing ? Easing.OutQuint : Easing.InCubic } }
 
@@ -38,10 +38,6 @@ PanelWindow {
     readonly property int enabledCount: mons.filter(m => m.enabled).length
     readonly property var others: mons.filter(m => m.enabled && sel && m.name !== sel.name)
 
-    anchors { top: true; bottom: true; left: true; right: true }
-    color: "transparent"
-    exclusionMode: ExclusionMode.Ignore
-    WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "project-menu"
     WlrLayershell.keyboardFocus: root.showing ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
     mask: Region { item: root.showing ? menuRoot : null }

@@ -5,7 +5,7 @@ import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Hyprland
 
-PanelWindow {
+ShellPopup {
     id: root
     property int topGap: 12
     property int sideGap: 24
@@ -36,7 +36,7 @@ PanelWindow {
     property bool mapped: false
     onShowingChanged: { if (showing) { unmapTimer.stop(); mapped = true } else unmapTimer.restart() }
     Timer { id: unmapTimer; interval: 700; onTriggered: root.mapped = false }
-    visible: mapped
+    surfaceOpen: mapped
     property bool settingsOpen: false
     property bool dragging: false
     property int currentIndex: 0
@@ -64,10 +64,6 @@ PanelWindow {
     readonly property string iconDir: "file://" + Quickshell.env("HOME") + "/.config/quickshell/imgs/"
     readonly property string statePath: Quickshell.env("HOME") + "/.config/quickshell/state/powermenu-state.json"
 
-    anchors { top: true; bottom: true; left: true; right: true }
-    color: "transparent"
-    exclusionMode: ExclusionMode.Ignore
-    WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "powermenu"
     WlrLayershell.keyboardFocus: root.showing ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 

@@ -5,7 +5,7 @@ import Quickshell.Services.Notifications
 import Quickshell.Services.UPower
 import QtQuick
 
-PanelWindow {
+ShellPopup {
     id: root
 
     property int topGap: 50
@@ -26,11 +26,7 @@ PanelWindow {
     readonly property int cardWidth: Math.round(baseWidth * ui)
     readonly property bool movedFromDefault: offsetX !== 0 || offsetY !== 0
 
-    anchors { top: true; bottom: true; right: true; left: true }
     implicitWidth: cardWidth + sideGap + 24
-    color: "transparent"
-    exclusionMode: ExclusionMode.Ignore
-    WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "notifications"
     WlrLayershell.keyboardFocus: panelOpen ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
 
@@ -41,7 +37,7 @@ PanelWindow {
     property bool mapped: false
     onWantedChanged: { if (wanted) { unmapTimer.stop(); mapped = true } else unmapTimer.restart() }
     Timer { id: unmapTimer; interval: 800; onTriggered: root.mapped = false }
-    visible: mapped
+    surfaceOpen: mapped
 
     onPanelOpenChanged: {
         if (panelOpen) root.setPosition(root.offsetX, root.offsetY);

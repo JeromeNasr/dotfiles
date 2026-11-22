@@ -7,17 +7,13 @@ import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Services.Mpris
 
-PanelWindow {
+ShellPopup {
     id: root
     readonly property bool showing: Marquee.menuOpen
     property real prog: showing ? 1 : 0
     Behavior on prog { NumberAnimation { duration: root.showing ? 260 : 150; easing.type: root.showing ? Easing.OutQuint : Easing.InCubic } }
 
-    anchors { top: true; bottom: true; left: true; right: true }
-    color: "transparent"
-    exclusionMode: ExclusionMode.Ignore
-    visible: showing || prog > 0.01
-    WlrLayershell.layer: WlrLayer.Overlay
+    surfaceOpen: showing || prog > 0.01
     WlrLayershell.namespace: "media-menu"
     WlrLayershell.keyboardFocus: showing ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
     mask: Region { item: root.showing ? catcher : null }

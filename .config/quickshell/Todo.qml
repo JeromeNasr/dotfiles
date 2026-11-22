@@ -6,7 +6,7 @@ import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Hyprland
 
-PanelWindow {
+ShellPopup {
     id: root
 
     property int topGap: 4
@@ -20,7 +20,7 @@ PanelWindow {
     property bool mapped: false
     onShowingChanged: { if (showing) { unmapTimer.stop(); mapped = true } else unmapTimer.restart() }
     Timer { id: unmapTimer; interval: 700; onTriggered: root.mapped = false }
-    visible: mapped
+    surfaceOpen: mapped
     property bool ready: false
     property bool dragging: false
     property int remaining: 0
@@ -36,10 +36,6 @@ PanelWindow {
 
     readonly property string statePath: Quickshell.env("HOME") + "/.config/quickshell/state/todo-state.json"
 
-    anchors { top: true; bottom: true; left: true; right: true }
-    color: "transparent"
-    exclusionMode: ExclusionMode.Ignore
-    WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "todo"
     WlrLayershell.keyboardFocus: root.showing ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 

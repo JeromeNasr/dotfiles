@@ -6,12 +6,8 @@ import QtQuick
 import QtQuick.Shapes
 import "SettingsPages"
 
-PanelWindow {
+ShellPopup {
     id: root
-    anchors { top: true; left: true; right: true; bottom: true }
-    color: "transparent"
-    exclusionMode: ExclusionMode.Ignore
-    WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "settings"
     WlrLayershell.keyboardFocus: root.showing ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
 
@@ -29,7 +25,7 @@ PanelWindow {
     property bool mapped: false
     onShowingChanged: { if (showing) { unmapTimer.stop(); mapped = true } else { dragging = false; unmapTimer.restart() } }
     Timer { id: unmapTimer; interval: 700; onTriggered: root.mapped = false }
-    visible: mapped
+    surfaceOpen: mapped
 
     property real cardMargin: 40
     property real dragMargin: 8
@@ -148,7 +144,7 @@ PanelWindow {
     // Snap/drag moves made by the user still animate.
     property bool instantGeom: false
     function relayout() {
-        if (width <= 0 || height <= 0) return
+        if (width < 100 || height < 100) return   // collapsed (closed ShellPopup) or not configured yet
         instantGeom = true
         applySnap(snapPosition)
         instantGeom = false

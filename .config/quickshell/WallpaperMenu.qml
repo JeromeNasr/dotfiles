@@ -12,7 +12,7 @@ import Quickshell.Widgets
 import Quickshell.Hyprland
 import Qt.labs.folderlistmodel
 
-PanelWindow {
+ShellPopup {
     id: main
     readonly property real ui: (screen ? screen.height : 1080) / 1080
 
@@ -35,14 +35,11 @@ PanelWindow {
     property bool loaded: false          // content is built on first open and then kept, so reopening is instant
     property real prog: showing ? 1 : 0
     Behavior on prog { NumberAnimation { duration: main.showing ? 260 : 160; easing.type: main.showing ? Easing.OutQuart : Easing.InCubic } }
-    onShowingChanged: { if (showing) { unmapTimer.stop(); visible = true } else unmapTimer.restart() }
-    Timer { id: unmapTimer; interval: 200; onTriggered: main.visible = false }
-    visible: false
+    property bool held: false
+    onShowingChanged: { if (showing) { unmapTimer.stop(); held = true } else unmapTimer.restart() }
+    Timer { id: unmapTimer; interval: 200; onTriggered: main.held = false }
+    surfaceOpen: held
 
-    anchors { top: true; bottom: true; left: true; right: true }
-    color: "transparent"
-    exclusionMode: ExclusionMode.Ignore
-    WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "wallpaper-picker"
     WlrLayershell.keyboardFocus: showing ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 

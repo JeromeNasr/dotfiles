@@ -8,7 +8,7 @@ import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Hyprland
 
-PanelWindow {
+ShellPopup {
     id: root
     property string iconFont: Theme.iconFont
     property int ringRadius: 134
@@ -21,7 +21,7 @@ PanelWindow {
     property bool mapped: false
     onShowingChanged: { if (showing) { unmapTimer.stop(); mapped = true } else unmapTimer.restart() }
     Timer { id: unmapTimer; interval: 700; onTriggered: root.mapped = false }
-    visible: mapped
+    surfaceOpen: mapped
     property int selected: -1
 
     readonly property int outerZone: ringRadius + ringThickness
@@ -85,10 +85,6 @@ PanelWindow {
                 }
 
 
-    anchors { top: true; bottom: true; left: true; right: true }
-    color: "transparent"
-    exclusionMode: ExclusionMode.Ignore
-    WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "wheel"
     WlrLayershell.keyboardFocus: root.showing ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 

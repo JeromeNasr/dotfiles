@@ -143,8 +143,18 @@ PanelWindow {
         root.saveState()
     }
 
-    onWidthChanged:  if (width > 0 && height > 0) applySnap(snapPosition)
-    onHeightChanged: if (width > 0 && height > 0) applySnap(snapPosition)
+    // When the surface itself gets its size (first map is 0x0 -> full screen), place the card
+    // instantly. Animating that jump made the first open glide in from the top-left corner.
+    // Snap/drag moves made by the user still animate.
+    property bool instantGeom: false
+    function relayout() {
+        if (width <= 0 || height <= 0) return
+        instantGeom = true
+        applySnap(snapPosition)
+        instantGeom = false
+    }
+    onWidthChanged:  relayout()
+    onHeightChanged: relayout()
 
     FileView {
         id: stateFile
@@ -160,8 +170,7 @@ PanelWindow {
                     if (typeof s.w === "number") root.freeW = s.w
                     if (typeof s.h === "number") root.freeH = s.h
                     root.snapPosition = s.snap
-                    if (root.width > 0 && root.height > 0)
-                        root.applySnap(s.snap)
+                    root.relayout()
                 }
             } catch (e) {
                 console.warn("settings: could not read saved state:", e)
@@ -264,7 +273,7 @@ PanelWindow {
         open: root.showing
 
         Behavior on x {
-            enabled: !root.dragging
+            enabled: !root.dragging && !root.instantGeom
             NumberAnimation {
                 duration: Theme.animMed
                 easing.type: Easing.OutCubic
@@ -272,7 +281,7 @@ PanelWindow {
         }
 
         Behavior on y {
-            enabled: !root.dragging
+            enabled: !root.dragging && !root.instantGeom
             NumberAnimation {
                 duration: Theme.animMed
                 easing.type: Easing.OutCubic
@@ -280,6 +289,7 @@ PanelWindow {
         }
 
         Behavior on width {
+            enabled: !root.instantGeom
             NumberAnimation {
                 duration: Theme.animMed
                 easing.type: Easing.OutCubic
@@ -287,6 +297,7 @@ PanelWindow {
         }
 
         Behavior on height {
+            enabled: !root.instantGeom
             NumberAnimation {
                 duration: Theme.animMed
                 easing.type: Easing.OutCubic

@@ -1,496 +1,263 @@
+// StoragePage.qml — disks, filesystems and one-click cleanup.
+// Same look as the other pages. Sizes are measured when the page opens (and after a
+// cleanup), not on a loop; disk usage refreshes every 10 s only while Settings is open.
 import QtQuick
-import QtQuick.Controls
+import Quickshell
 import Quickshell.Io
 import "../"
 
 Item {
     id: page
-    property var drives: []
-    property var filesystems: []
-    property var cleanupInfo: ({yay:0, pacman:0, journal:0, trash:0, flatpak:0, cliphist:0, thumbs:0})
-    property var sdaUsageData: null
-    property real marginLeft: 0
-    property real marginRight: 55
-    property real marginTop: 0
-    property real marginBottom: 0
-    property string pendingAction: ""
-    property string pendingTitle: ""
-    property string pendingMessage: ""
+    readonly property int rightMargin: 46
+    readonly property string mono: "JetBrainsMono Nerd Font"
+    // set by SettingsWindow: true only while Settings is open
+    property bool live: true
 
-    readonly property var cleanupDefaults: ({yay:0, pacman:0, journal:0, trash:0, flatpak:0, cliphist:0, thumbs:0})
-    readonly property var sizeUnits: ({
-        B:1, K:1024, KB:1024, KIB:1024,
-        M:1048576, MB:1048576, MIB:1048576,
-        G:1073741824, GB:1073741824, GIB:1073741824,
-        T:1099511627776, TB:1099511627776, TIB:1099511627776
-    })
+    property var disks: []          // [{ name, model, size, tran, mounts: [df rows] }]
+    property var info: ({})         // cleanup sizes, see pScan
+    property bool scanned: false
+    property string confirming: ""  // key of the item asking "sure?"
+    property string running: ""     // key of the item being cleaned
+    property var results: ({})      // key -> "freed 1.2 GB" / error
 
-    function formatBytes(b) {
-        if (!isFinite(b) || b < 0) return "0 B"
-        var u = ["B", "KB", "MB", "GB", "TB"]
-        var i = 0
-        var v = b
-        while (v >= 1024 && i < u.length - 1) { v /= 1024; ++i }
-        return (i ? v.toFixed(1) : Math.round(v)) + " " + u[i]
+    function fmt(b) {
+        if (!isFinite(b) || b <= 0) return "0 B"
+        const u = ["B", "KB", "MB", "GB", "TB"]; let i = 0
+        while (b >= 1024 && i < u.length - 1) { b /= 1024; i++ }
+        return (i ? b.toFixed(1) : Math.round(b)) + " " + u[i]
     }
-
-    function formatCount(n) {
-        var v = Math.round(n) || 0
-        return v + (v === 1 ? " item" : " items")
-    }
-
-    function parseSize(v) {
-        if (!v) return 0
-        var m = v.trim().match(/^([0-9.]+)\s*([A-Za-z]*)$/)
+    // "3.15 GiB", "490M", "12 KB" -> bytes
+    function parseSize(s) {
+        const m = String(s || "").replace(/\s+/g, "").match(/^([0-9.]+)([KMGT]?)(i?B)?$/i)
         if (!m) return 0
-        var n = parseFloat(m[1])
-        if (isNaN(n)) return 0
-        return n * (m[2] ? (sizeUnits[m[2].toUpperCase()] || 1) : 1)
+        return parseFloat(m[1]) * Math.pow(1024, " KMGT".indexOf((m[2] || " ").toUpperCase()))
     }
+    function tone(p) { return p >= 90 ? Theme.danger : Theme.accent }
 
-    function usageColor(p) { return p >= 90 ? Theme.danger : p >= 75 ? Theme.accent2 : Theme.accent }
-    function usageWidth(p) { return Math.min(1, Math.max(0, p / 100)) }
-    function ignoredMount(m) { return ["/proc", "/sys", "/run", "/dev"].some(function(x) { return m.indexOf(x) === 0 }) }
-    function ignoredFilesystem(f) { return ["tmpfs", "devtmpfs", "overlay"].some(function(x) { return f.indexOf(x) === 0 }) }
-
-    function parseDfLine(line) {
-        var f = line.trim().split(/\s+/)
-        if (f.length < 6) return null
-        var d = {
-            filesystem: f[0], total: parseInt(f[1]), used: parseInt(f[2]),
-            available: parseInt(f[3]), percent: parseInt(f[4]), mount: f.slice(5).join(" ")
-        }
-        if ([d.total, d.used, d.available, d.percent].some(isNaN) || ignoredMount(d.mount) || ignoredFilesystem(d.filesystem)) return null
-        return d
-    }
-
-    function parseDriveData(data) {
-        var disks = []
-        try {
-            var obj = JSON.parse(data)
-            if (!obj.blockdevices) return disks
-            for (var i = 0; i < obj.blockdevices.length; ++i) {
-                var d = obj.blockdevices[i]
-                if (d.type === "disk" && d.name === "sda")
-                    disks.push({ name: d.name || "", model: d.model || "", size: parseInt(d.size) || 0, type: d.type || "", tran: d.tran || "" })
-            }
-        } catch (e) { console.log("lsblk JSON error:", e) }
-        return disks
-    }
-
-    function findSdaUsage() {
-        var used = 0
-        for (var i = 0; i < filesystems.length; ++i) {
-            var fs = filesystems[i]
-            if (fs.filesystem.indexOf("/dev/sda") === 0) used += fs.used
-        }
-        return used > 0 ? {used: used} : null
-    }
-
-    function runCommand(c) { commandProcess.command = ["sh", "-c", c]; commandProcess.running = true }
-    function refreshAll() { pDrives.running = pStorage.running = pCleanup.running = true }
-    function confirmAction(t, m, c) { pendingTitle = t; pendingMessage = m; pendingAction = c; confirmPopup.visible = true }
-
+    // ---------- disks + filesystems ----------
     Process {
-        id: pDrives
-        command: ["sh", "-c", "lsblk -J -b -d -o NAME,MODEL,SIZE,TYPE,TRAN 2>/dev/null"]
-        stdout: StdioCollector { onStreamFinished: page.drives = page.parseDriveData(text) }
-        stderr: StdioCollector {}
-    }
-
-    Process {
-        id: pStorage
-        command: ["sh", "-c", "df -P -B1 2>/dev/null"]
+        id: pDisks
+        command: ["sh", "-c", "lsblk -J -b -d -o NAME,MODEL,SIZE,TYPE,TRAN; echo '#'; df -P -B1 -T"]
         stdout: StdioCollector {
             onStreamFinished: {
-                var fs = []
-                var lines = text.trim().split("\n")
-                for (var i = 0; i < lines.length; ++i) {
-                    var item = page.parseDfLine(lines[i])
-                    if (item) fs.push(item)
+                const [blk, dfText] = text.split("\n#\n")
+                let list = []
+                try {
+                    list = (JSON.parse(blk).blockdevices || [])
+                        .filter(d => d.type === "disk" && !/^(zram|loop|ram)/.test(d.name))
+                        .map(d => ({ name: d.name, model: (d.model || "").trim(), size: Number(d.size) || 0, tran: d.tran || "", mounts: [] }))
+                } catch (e) {}
+                for (const line of (dfText || "").split("\n").slice(1)) {
+                    const f = line.trim().split(/\s+/)
+                    if (f.length < 7 || !f[0].startsWith("/dev/")) continue
+                    const row = { dev: f[0], type: f[1], total: Number(f[2]), used: Number(f[3]), free: Number(f[4]), pct: parseInt(f[5]), mount: f.slice(6).join(" ") }
+                    const disk = list.find(d => f[0].startsWith("/dev/" + d.name))
+                    // one row per device (bind mounts / btrfs subvolumes show up several times)
+                    if (disk && !disk.mounts.some(m => m.dev === row.dev)) disk.mounts.push(row)
                 }
-                page.filesystems = fs
-                page.sdaUsageData = page.findSdaUsage()
+                for (const d of list) d.mounts.sort((a, b) => a.mount.length - b.mount.length)
+                page.disks = list
             }
         }
-        stderr: StdioCollector {}
     }
+    Timer { interval: 10000; repeat: true; running: page.live; onTriggered: pDisks.running = true }
 
+    // ---------- cleanup sizes (on open / after a cleanup) ----------
     Process {
-        id: pCleanup
-        command: [
-            "sh", "-c",
-            "p() { printf '%s %s\\n' \"$1\" \"${2:-0}\"; }; " +
-            "p YAY \"$(du -sb \"$HOME/.cache/yay\" 2>/dev/null | awk '{print $1}')\"; " +
-            "p PACMAN \"$(du -sb /var/cache/pacman/pkg 2>/dev/null | awk '{print $1}')\"; " +
-            "p JOURNAL \"$(journalctl --disk-usage 2>/dev/null | grep -oE '[0-9.]+ ?[BKMGT]' | tail -1 | tr -d ' ')\"; " +
-            "p TRASH \"$(du -sb \"$HOME/.local/share/Trash\" 2>/dev/null | awk '{print $1}')\"; " +
-            "p FLATPAK \"$(flatpak uninstall --unused --assumeno 2>/dev/null | grep -oE '[0-9.]+ ?(kB|MB|GB|TB)' | tail -1 | tr -d ' ')\"; " +
-            "p CLIPHIST \"$(cliphist list 2>/dev/null | wc -l)\"; " +
-            "p THUMBS \"$(du -sb \"$HOME/.cache/quickshell/thumbs\" 2>/dev/null | awk '{print $1}')\""
-        ]
+        id: pScan
+        command: ["sh", "-c",
+            "s() { du -sb \"$1\" 2>/dev/null | cut -f1; };" +
+            "echo \"trash $(s \"$HOME/.local/share/Trash\")\";" +
+            "echo \"thumbs $(s \"$HOME/.cache/quickshell/thumbs\")\";" +
+            "echo \"yay $(s \"$HOME/.cache/yay\")\";" +
+            "echo \"clip $(cliphist list 2>/dev/null | wc -l)\";" +
+            "echo \"journal $(journalctl --disk-usage 2>/dev/null | grep -oE '[0-9.]+ ?[KMGT]?i?B?' | head -1 | tr -d ' ')\";" +
+            "echo \"pacman $(s /var/cache/pacman/pkg)\";" +
+            "echo \"pacold $(paccache -dk1 2>/dev/null | grep -oE 'saved: [0-9.]+ [KMGT]?i?B' | cut -d' ' -f2- | tr -d ' ')\";" +
+            "echo \"pacgone $(paccache -duk0 2>/dev/null | grep -oE 'saved: [0-9.]+ [KMGT]?i?B' | cut -d' ' -f2- | tr -d ' ')\";" +
+            "command -v flatpak >/dev/null && echo \"flatpak $(flatpak list 2>/dev/null | wc -l)\""]
         stdout: StdioCollector {
             onStreamFinished: {
-                var info = {yay: 0, pacman: 0, journal: 0, trash: 0, flatpak: 0, cliphist: 0, thumbs: 0}
-                var lines = text.trim().split("\n")
-                for (var i = 0; i < lines.length; ++i) {
-                    var p = lines[i].trim().split(/\s+/)
-                    var k = p[0] ? p[0].toLowerCase() : ""
-                    if (p.length > 1 && info[k] !== undefined) info[k] = page.parseSize(p.slice(1).join(" "))
+                const o = {}
+                for (const line of text.split("\n")) {
+                    const [k, v] = line.trim().split(" ")
+                    if (!k) continue
+                    o[k] = (k === "clip" || k === "flatpak") ? (parseInt(v) || 0) : (/^[0-9]+$/.test(v || "") ? Number(v) : page.parseSize(v))
                 }
-                page.cleanupInfo = info
+                page.info = o
+                page.scanned = true
             }
         }
-        stderr: StdioCollector {}
     }
+
+    function refreshAll() { pDisks.running = true; if (!pScan.running) pScan.running = true }
+    onLiveChanged: if (live) refreshAll()
+    Component.onCompleted: refreshAll()
+
+    // ---------- cleanup actions ----------
+    readonly property var items: [
+        { key: "trash", label: "trash", note: "files you deleted",
+          size: () => info.trash, verb: "empty",
+          cmd: "rm -rf -- \"$HOME/.local/share/Trash/files/\"* \"$HOME/.local/share/Trash/info/\"* \"$HOME/.local/share/Trash/expunged/\"* 2>/dev/null; true" },
+        { key: "clip", label: "clipboard", note: "history entries",
+          text: () => (info.clip || 0) + " items", verb: "wipe", cmd: "cliphist wipe" },
+        { key: "thumbs", label: "thumbnails", note: "wallpaper picker cache, rebuilt on demand",
+          size: () => info.thumbs, verb: "clear", cmd: "rm -rf -- \"$HOME/.cache/quickshell/thumbs/\"*" },
+        { key: "yay", label: "yay cache", note: "AUR build files",
+          size: () => info.yay, verb: "clean", cmd: "rm -rf -- \"$HOME/.cache/yay/\"*" },
+        { key: "pacman", label: "pacman cache", note: "keeps only the installed version of each package",
+          size: () => (info.pacold || 0) + (info.pacgone || 0), approx: true, of: () => info.pacman, verb: "clean", root: true,
+          cmd: "pkexec sh -c 'paccache -rk1; paccache -ruk0'" },
+        { key: "journal", label: "system logs", note: "trimmed to the last 7 days",
+          size: () => info.journal, verb: "trim", root: true,
+          cmd: "pkexec journalctl --vacuum-time=7d" },
+        { key: "flatpak", label: "flatpak", note: "unused runtimes", hide: () => !info.flatpak,
+          text: () => "", verb: "clean", cmd: "flatpak uninstall --unused -y --noninteractive" }
+    ]
 
     Process {
-        id: commandProcess
-        stdout: StdioCollector {}
-        stderr: StdioCollector {}
-        onRunningChanged: { if (!running) page.refreshAll() }
+        id: pClean
+        property string key: ""
+        property real before: 0
+        stderr: StdioCollector { id: cleanErr }
+        onExited: code => {
+            const r = Object.assign({}, page.results)
+            r[pClean.key] = code === 0 ? "done" : (code === 126 || code === 127 ? "cancelled" : (cleanErr.text.trim().split("\n").pop() || "failed").slice(0, 70))
+            page.results = r
+            page.running = ""
+            page.refreshAll()
+        }
+    }
+    function clean(it) {
+        if (pClean.running) return
+        confirming = ""; running = it.key
+        const r = Object.assign({}, results); delete r[it.key]; results = r
+        pClean.key = it.key; pClean.command = ["sh", "-c", it.cmd]; pClean.running = true
     }
 
-    Rectangle {
-        id: confirmPopup
-        visible: false; anchors.centerIn: parent; z: 100
-        width: Math.min(parent.width - 30, 420); height: 190; radius: Theme.radius
-        color: Theme.bg; border.width: 1; border.color: Theme.accent
+    // ---------- pieces ----------
+    component Act: Text {
+        id: act
+        property bool lit: false
+        property bool warn: false
+        signal clicked()
+        color: warn ? Theme.danger : lit ? Theme.accent : am.containsMouse ? Theme.text : Theme.textFaint
+        font.family: page.mono; font.pixelSize: 11; font.underline: am.containsMouse
+        MouseArea { id: am; anchors.fill: parent; anchors.margins: -4; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: act.clicked() }
+    }
+
+    // ---------- layout ----------
+    Flickable {
+        id: flick
+        anchors { fill: parent; rightMargin: page.rightMargin }
+        contentWidth: width
+        contentHeight: content.implicitHeight + 8
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
 
         Column {
-            anchors.fill: parent; anchors.margins: 18; spacing: 12
-            Text {
-                text: page.pendingTitle; color: Theme.text
-                font.family: Theme.fontFamily; font.pixelSize: 17; font.bold: true
-            }
-            Text {
-                width: parent.width; text: page.pendingMessage; color: Theme.textDim
-                font.family: Theme.fontFamily; font.pixelSize: 13; wrapMode: Text.WordWrap
-            }
-            Item { width: 1; height: 1 }
-            Row {
-                width: parent.width; spacing: 10
-                ToolButton {
-                    width: (parent.width - 8) / 2; label: "Cancel"
-                    onClicked: confirmPopup.visible = false
-                }
-                ToolButton {
-                    width: (parent.width - 8) / 2; label: "Confirm"; accent: true
-                    onClicked: { confirmPopup.visible = false; page.runCommand(page.pendingAction) }
-                }
-            }
-        }
-    }
+            id: content
+            width: flick.width
+            spacing: 14
 
-    Timer { interval: 10000; running: true; repeat: true; onTriggered: page.refreshAll() }
-    Component.onCompleted: page.refreshAll()
+            Text { text: "Storage"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: 19 }
+            Rectangle { width: parent.width; height: 1; color: Theme.border }
 
-    Column {
-        anchors.fill: parent
-        anchors.leftMargin: page.marginLeft; anchors.rightMargin: page.marginRight
-        anchors.topMargin: page.marginTop; anchors.bottomMargin: page.marginBottom
-        spacing: 14
-
-        Text {
-            text: "Storage"; color: Theme.text
-            font.family: Theme.fontFamily; font.pixelSize: 19
-        }
-
-        Rectangle { width: parent.width; height: 1; color: Theme.border }
-
-        Item {
-            width: parent.width; height: parent.height - y
-
-            Flickable {
-                id: flick
-                anchors.fill: parent; clip: true
-                contentWidth: width; contentHeight: list.height
-                boundsBehavior: Flickable.StopAtBounds
-
-                ScrollBar.vertical: ScrollBar {
-                    id: scrollBar
-                    background: Rectangle {
-                        color: Theme.alpha(Theme.border, 0)
-                        radius: width / 2
-                    }
-                    contentItem: Rectangle {
-                        color: Theme.accent
-                        radius: width / 2
-                    }
-                }
-
+            // disks
+            Repeater {
+                model: page.disks
                 Column {
-                    id: list
-                    width: parent.width; spacing: 10
+                    id: disk
+                    required property var modelData
+                    width: content.width
+                    spacing: 8
 
-                    Text {
-                        text: "Drives"; color: Theme.text
-                        font.family: Theme.fontFamily; font.pixelSize: 15; font.bold: true
+                    Item {
+                        width: parent.width; height: 18
+                        Row {
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 12
+                            Text { text: disk.modelData.model || disk.modelData.name; color: Theme.text; font.family: page.mono; font.pixelSize: 13; font.bold: true }
+                            Text { text: [disk.modelData.tran, page.fmt(disk.modelData.size)].filter(s => s).join("  ·  "); color: Theme.textFaint; font.family: page.mono; font.pixelSize: 11; anchors.baseline: parent.children[0].baseline }
+                        }
+                        Act { anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                              text: "what's using space?"; onClicked: Quickshell.execDetached(["baobab"]) }
                     }
 
                     Repeater {
-                        model: page.drives
-                        delegate: Item {
+                        model: disk.modelData.mounts
+                        Item {
+                            id: mrow
                             required property var modelData
-                            property bool hasUsage: page.sdaUsageData !== null && modelData.size > 0
-                            property real usedPct: hasUsage ? (page.sdaUsageData.used / modelData.size) * 100 : 0
-                            width: list.width; height: 64
-
-                            Column {
-                                anchors.fill: parent; spacing: 9
-
-                                Row {
-                                    width: parent.width; height: 17
-                                    Text {
-                                        width: parent.width - 70; text: modelData.model || modelData.name || "SSD/HDD"
-                                        color: Theme.text; elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter
-                                        font.family: Theme.fontFamily; font.pixelSize: 13; font.bold: true
-                                    }
-                                    Text {
-                                        width: 70; text: hasUsage ? Math.round(usedPct) + "%" : "--%"
-                                        color: hasUsage ? page.usageColor(usedPct) : Theme.textDim
-                                        horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter
-                                        font.family: Theme.fontFamily; font.pixelSize: 12; font.bold: true
-                                    }
-                                }
-
+                            width: disk.width; height: 20
+                            Text { id: ml; width: 84; anchors.verticalCenter: parent.verticalCenter; text: mrow.modelData.mount; elide: Text.ElideRight; color: Theme.accent; font.family: page.mono; font.pixelSize: 12 }
+                            Rectangle {
+                                anchors { left: ml.right; right: mp.left; rightMargin: 12; verticalCenter: parent.verticalCenter }
+                                height: 4; radius: 2
+                                color: Theme.alpha(Theme.textFaint, 0.18)
                                 Rectangle {
-                                    width: parent.width; height: 4; radius: 2
-                                    color: Theme.alpha(Theme.textDim, .15)
-                                    Rectangle {
-                                        width: hasUsage ? parent.width * page.usageWidth(usedPct) : 0
-                                        height: parent.height; radius: 2
-                                        color: hasUsage ? page.usageColor(usedPct) : Theme.accent
-                                        Behavior on width { NumberAnimation { duration: Theme.animMed } }
-                                    }
-                                }
-
-                                Row {
-                                    width: parent.width; height: 13; spacing: 14
-                                    Text {
-                                        text: page.sdaUsageData ? page.formatBytes(page.sdaUsageData.used) + " used" : "-- used"
-                                        color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: 11
-                                    }
-                                    Text {
-                                        text: page.sdaUsageData && modelData.size > page.sdaUsageData.used
-                                            ? page.formatBytes(modelData.size - page.sdaUsageData.used) + " free" : "-- free"
-                                        color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: 11
-                                    }
-                                    Text {
-                                        text: page.formatBytes(modelData.size) + " total"
-                                        color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: 11
-                                    }
+                                    width: parent.width * Math.min(1, mrow.modelData.pct / 100); height: parent.height; radius: 2
+                                    color: page.tone(mrow.modelData.pct)
+                                    Behavior on width { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
                                 }
                             }
+                            Text { id: mp; anchors { right: md.left; rightMargin: 14; verticalCenter: parent.verticalCenter }
+                                   width: 40; horizontalAlignment: Text.AlignRight
+                                   text: mrow.modelData.pct + "%"; color: mrow.modelData.pct >= 90 ? Theme.danger : Theme.text; font.family: page.mono; font.pixelSize: 12 }
+                            Text { id: md; anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                                   width: 190; horizontalAlignment: Text.AlignRight
+                                   text: page.fmt(mrow.modelData.free) + " free of " + page.fmt(mrow.modelData.total)
+                                   color: Theme.textFaint; font.family: page.mono; font.pixelSize: 11 }
                         }
                     }
+                    Item { width: 1; height: 2 }
+                }
+            }
 
-                    Text {
-                        text: "Filesystem"; color: Theme.text; topPadding: 4
-                        font.family: Theme.fontFamily; font.pixelSize: 15; font.bold: true
-                    }
+            Rectangle { width: parent.width; height: 1; color: Theme.border; opacity: 0.6 }
 
-                    Repeater {
-                        model: page.filesystems
-                        delegate: Item {
-                            required property var modelData
-                            width: list.width; height: 64
+            Item {
+                width: parent.width; height: 16
+                Text { text: "cleanup"; color: Theme.textDim; font.family: page.mono; font.pixelSize: 12 }
+                Text { anchors.right: parent.right; text: page.scanned ? "" : "measuring…"; color: Theme.textFaint; font.family: page.mono; font.pixelSize: 11 }
+            }
 
-                            Column {
-                                anchors.fill: parent; spacing: 9
+            Column {
+                width: parent.width
+                spacing: 4
+                Repeater {
+                    model: page.items
+                    Item {
+                        id: ci
+                        required property var modelData
+                        readonly property real bytes: modelData.size ? (modelData.size() || 0) : 0
+                        readonly property string amount: !page.scanned ? "…" : modelData.text ? modelData.text() : (modelData.approx && bytes > 0 ? "~" : "") + page.fmt(bytes)
+                        readonly property bool empty: page.scanned && (modelData.size ? bytes <= 0 : modelData.key === "clip" ? !page.info.clip : false)
+                        readonly property string result: page.results[modelData.key] || ""
+                        visible: !(modelData.hide && modelData.hide())
+                        width: parent.width; height: visible ? 34 : 0
 
-                                Row {
-                                    width: parent.width; height: 17
-                                    Text {
-                                        width: parent.width - 55; text: modelData.mount
-                                        color: Theme.text; elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter
-                                        font.family: Theme.fontFamily; font.pixelSize: 13; font.bold: true
-                                    }
-                                    Text {
-                                        width: 55; text: modelData.percent + "%"; color: page.usageColor(modelData.percent)
-                                        horizontalAlignment: Text.AlignRight; verticalAlignment: Text.AlignVCenter
-                                        font.family: Theme.fontFamily; font.pixelSize: 12; font.bold: true
-                                    }
-                                }
+                        Text { id: cl; width: 120; y: 2; text: ci.modelData.label; color: Theme.accent; font.family: page.mono; font.pixelSize: 12 }
+                        Text { id: ca; anchors { left: cl.right; baseline: cl.baseline } width: 90
+                               text: ci.amount; color: ci.empty ? Theme.textFaint : Theme.text; font.family: page.mono; font.pixelSize: 12 }
+                        Text { anchors { left: cl.left; top: cl.bottom; topMargin: 2 }
+                               text: ci.modelData.note + (ci.modelData.of && page.scanned ? "  ·  " + page.fmt(ci.modelData.of()) + " total" : "") + (ci.modelData.root ? "  ·  asks for your password" : "")
+                               color: Theme.textFaint; font.family: page.mono; font.pixelSize: 10 }
 
-                                Rectangle {
-                                    width: parent.width; height: 4; radius: 2
-                                    color: Theme.alpha(Theme.textDim, .15)
-                                    Rectangle {
-                                        width: parent.width * page.usageWidth(modelData.percent)
-                                        height: parent.height; radius: 2; color: page.usageColor(modelData.percent)
-                                        Behavior on width { NumberAnimation { duration: Theme.animMed } }
-                                    }
-                                }
-
-                                Row {
-                                    width: parent.width; height: 13; spacing: 14
-                                    Text {
-                                        text: page.formatBytes(modelData.used) + " used"
-                                        color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: 11
-                                    }
-                                    Text {
-                                        text: page.formatBytes(modelData.available) + " free"
-                                        color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: 11
-                                    }
-                                    Text {
-                                        text: page.formatBytes(modelData.total) + " total"
-                                        color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: 11
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Text {
-                        text: "Cleanup"; color: Theme.text; topPadding: 4
-                        font.family: Theme.fontFamily; font.pixelSize: 15; font.bold: true
-                    }
-
-                    Repeater {
-                        model: [
-                            {
-                                key: "trash", label: "Trash", action: "Empty", title: "Empty trash?",
-                                message: "This permanently deletes everything in ~/.local/share/Trash.",
-                                command: "rm -rf -- \"$HOME/.local/share/Trash/files/\"* \"$HOME/.local/share/Trash/info/\"*"
-                            },
-                            {
-                                key: "cliphist", label: "Cliphist", action: "Wipe", title: "Wipe clipboard history?",
-                                message: "This permanently clears your entire clipboard history (cliphist).",
-                                command: "cliphist wipe"
-                            },
-                            {
-                                key: "thumbs", label: "Wallpaper picker", action: "Clear", title: "Clear thumbnail cache?",
-                                message: "This permanently deletes everything in ~/.cache/quickshell/thumbs.",
-                                command: "rm -rf -- \"$HOME/.cache/quickshell/thumbs/\"*"
-                            },
-                            {
-                                key: "yay", label: "yay cache", action: "Clean", title: "Clear yay cache?",
-                                message: "CACHE_PLACEHOLDER",
-                                command: "rm -rf -- \"$HOME/.cache/yay/\"*"
-                            },
-                            {
-                                key: "pacman", label: "pacman cache", action: "Clean", title: "Clean pacman cache?",
-                                message: "paccache will remove old package versions while keeping the currently installed packages.",
-                                command: "sudo paccache -r"
-                            },
-                            {
-                                key: "journal", label: "Journal", action: "7 days", title: "Vacuum journal?",
-                                message: "Keep only the last 7 days of system logs.",
-                                command: "sudo journalctl --vacuum-time=7d"
-                            },
-                            {
-                                key: "flatpak", label: "Flatpak unused", action: "Clean", title: "Remove unused Flatpaks?",
-                                message: "This removes unused Flatpak runtimes and packages.",
-                                command: "flatpak uninstall --unused"
-                            }
-                        ]
-
-                        delegate: CleanupButton {
-                            required property var modelData
-                            width: list.width
-                            label: modelData.label
-                            value: modelData.key === "cliphist" ? page.formatCount(page.cleanupInfo.cliphist) : page.formatBytes(page.cleanupInfo[modelData.key])
-                            actionText: modelData.action
-                            onClicked: page.confirmAction(
-                                modelData.title,
-                                modelData.message === "CACHE_PLACEHOLDER"
-                                    ? page.formatBytes(page.cleanupInfo.yay) + " currently in ~/.cache/yay"
-                                    : modelData.message,
-                                modelData.command
-                            )
+                        Row {
+                            anchors { right: parent.right; top: parent.top; topMargin: 2 }
+                            spacing: 14
+                            Text { visible: ci.result !== "" && page.running !== ci.modelData.key; text: ci.result
+                                   color: ci.result === "done" ? Theme.textDim : Theme.danger; font.family: page.mono; font.pixelSize: 11 }
+                            Text { visible: page.running === ci.modelData.key; text: "working…"; color: Theme.textDim; font.family: page.mono; font.pixelSize: 11 }
+                            Act { visible: page.confirming === ci.modelData.key; text: "cancel"; onClicked: page.confirming = "" }
+                            Act { visible: page.confirming === ci.modelData.key; text: ci.modelData.verb + " now"; warn: true; onClicked: page.clean(ci.modelData) }
+                            Act { visible: page.confirming !== ci.modelData.key && page.running !== ci.modelData.key && !ci.empty && page.scanned
+                                  text: ci.modelData.verb; onClicked: page.confirming = ci.modelData.key }
                         }
                     }
                 }
             }
-        }
-    }
-
-    component ToolButton: Rectangle {
-        property string label: ""
-        property bool accent: false
-        signal clicked()
-        height: 38; radius: Theme.radius; color: "#00000000"
-        border.width: 1; border.color: Theme.border
-
-        Text {
-            anchors.centerIn: parent; text: parent.label
-            color: parent.accent ? Theme.accent : Theme.textDim
-            font.family: Theme.fontFamily; font.pixelSize: 11; font.bold: true
-        }
-
-        MouseArea {
-            anchors.fill: parent; hoverEnabled: true
-            onEntered: { parent.color = Theme.alpha(Theme.accent, 0.08); parent.border.color = Theme.accent }
-            onExited: { parent.color = "#00000000"; parent.border.color = Theme.border }
-            onClicked: parent.clicked()
-        }
-    }
-
-    component CleanupButton: Rectangle {
-        id: cleanupRoot
-        required property string label
-        required property string value
-        required property string actionText
-        signal clicked()
-
-        width: parent.width
-        height: 42
-        radius: Theme.radius
-        color: "#00000000"
-        border.width: 1
-        border.color: Theme.border
-
-        Text {
-            anchors.left: parent.left
-            anchors.leftMargin: 14
-            anchors.verticalCenter: parent.verticalCenter
-            text: cleanupRoot.label
-            color: Theme.textDim
-            font.family: Theme.fontFamily
-            font.pixelSize: 13
-            font.bold: true
-        }
-
-        Row {
-            anchors.right: parent.right
-            anchors.rightMargin: 14
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 8
-
-            Text {
-                text: cleanupRoot.value
-                color: Theme.textDim
-                font.family: Theme.fontFamily
-                font.pixelSize: 12
-                anchors.verticalCenter: parent.verticalCenter
-            }
-
-            Text {
-                text: cleanupRoot.actionText
-                color: Theme.textDim
-                font.family: Theme.fontFamily
-                font.pixelSize: 12
-                font.bold: true
-                anchors.verticalCenter: parent.verticalCenter
-            }
-        }
-
-        MouseArea {
-            anchors.fill: parent
-            hoverEnabled: true
-
-            onEntered: {
-                parent.color = Theme.alpha(Theme.accent, 0.08)
-                parent.border.color = Theme.accent
-            }
-
-            onExited: {
-                parent.color = "#00000000"
-                parent.border.color = Theme.border
-            }
-
-            onClicked: cleanupRoot.clicked()
         }
     }
 }

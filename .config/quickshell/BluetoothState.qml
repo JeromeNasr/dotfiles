@@ -23,6 +23,10 @@ Singleton {
     property string trackedSink: ""
     property real settleUntil: 0
     property int settleMs: 6000
+    property bool settling: false
+    // auto-reconnect backoff per address: { n: attempts, next: ms timestamp }
+    property var attempts: ({})
+    readonly property int maxAttempts: 6
 
     function init() {}
 
@@ -121,14 +125,21 @@ Singleton {
             return
         var devs = root.deviceList()
         for (var i = 0; i < devs.length; i++) {
-            if (devs[i].state === BluetoothDeviceState.Connected && devs[i].address)
+            if (devs[i].state === BluetoothDeviceState.Connected && devs[i].address) {
                 root.remember(devs[i].address)
+                if (root.attempts[devs[i].address]) {
+                    var upd = Object.assign({}, root.attempts)
+                    delete upd[devs[i].address]
+                    root.attempts = upd
+                }
+            }
         }
     }
 
     function reconnectRemembered() {
         if (!root.stateLoaded || !root.adapter || !root.powered || root.reconnectPaused)
             return
+        var now = Date.now()
         var devs = root.deviceList()
         for (var i = 0; i < devs.length; i++) {
             var d = devs[i]
@@ -140,10 +151,21 @@ Singleton {
                 continue
             if (d.state !== BluetoothDeviceState.Disconnected)
                 continue
+            // back off: 15 s, 45 s, 2 min, 7 min, 10 min, 10 min, then stop until the
+            // adapter is switched on again. (Paging absent headsets every 5 s forever
+            // wastes battery and steals airtime from 2.4 GHz Wi-Fi.)
+            var a = root.attempts[d.address] || { n: 0, next: 0 }
+            if (a.n >= root.maxAttempts || now < a.next)
+                continue
+            var upd = Object.assign({}, root.attempts)
+            upd[d.address] = { n: a.n + 1, next: now + Math.min(600000, 5000 * Math.pow(3, a.n + 1)) }
+            root.attempts = upd
             d.trusted = true
             d.connect()
         }
     }
+
+    function resetAttempts() { root.attempts = ({}) }
 
     function pruneRemovingDevices() {
         var now = Date.now()
@@ -205,7 +227,8 @@ Singleton {
         var saved = root.deviceVolumes[addr]
         var current = node.audio.volume
 
-        if (Date.now() < root.settleUntil) {
+        root.settling = Date.now() < root.settleUntil
+        if (root.settling) {
             if (typeof saved === "number" && Math.abs(current - saved) > 0.005)
                 node.audio.volume = Math.max(0, Math.min(1.0, saved))
             return
@@ -221,8 +244,11 @@ Singleton {
         root.saveState()
     }
 
+    // react to a new default sink immediately (restore a headset's saved volume before it
+    // plays anything); otherwise a slow tick is enough, fast only while settling
+    onSinkChanged: volumeTick()
     Timer {
-        interval: 250
+        interval: root.settling ? 250 : 1000
         running: root.stateLoaded
         repeat: true
         onTriggered: root.volumeTick()
@@ -249,8 +275,10 @@ Singleton {
     Connections {
         target: root.adapter
         function onEnabledChanged() {
-            if (root.adapter && root.adapter.enabled)
+            if (root.adapter && root.adapter.enabled) {
                 root.reconnectPaused = false
+                root.resetAttempts()
+            }
             root.reconnectRemembered()
         }
     }

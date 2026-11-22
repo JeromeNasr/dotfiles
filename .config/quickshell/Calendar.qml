@@ -9,6 +9,7 @@ import Quickshell.Hyprland
 
 PanelWindow {
     id: root
+    property alias ipc: ipcH
 
     property bool showing: false
     // The surface stays mapped all the time (it's only card-sized, fully transparent and
@@ -104,9 +105,10 @@ PanelWindow {
     // a click on the bar clock while open first clears the grab (closing it); don't reopen on that same click
     function toggle() { showing ? close() : (Date.now() - grabClosedAt < 350 ? null : open()) }
 
-    Connections { target: Prefs; function onToggleCalendar() { root.toggle() } }
 
     IpcHandler {
+        id: ipcH
+        enabled: false   // the always-loaded stub in shell.qml forwards here (lazy loading)
         target: "calendar"
         function toggle(): void { root.toggle() }
         function show(): void { root.open() }

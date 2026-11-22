@@ -827,9 +827,14 @@ Scope {
         Mod {
             baseSize: root.sizeNetIcon
             yOffset: root.iconYOffset
+            id: netMod
             text: root.netState === "wifi" ? "\uDB81\uDDA9"
                 : root.netState === "ethernet" ? "\uDB80\uDE00" : "\uDB81\uDDAA"
-            onClicked: root.run("qs ipc call settings network")
+            tip: "left: quick wi-fi & bluetooth · right: network settings"
+            // left: quick menu under the icon; right: full Network settings
+            onClicked: mouse => mouse.button === Qt.RightButton
+                ? root.run("qs ipc call settings network")
+                : Prefs.toggleQuick(netMod.mapToItem(null, netMod.width / 2, 0).x)
         }
     }
 

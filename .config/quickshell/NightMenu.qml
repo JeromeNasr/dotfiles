@@ -7,6 +7,7 @@ import Quickshell.Wayland
 
 ShellPopup {
     id: root
+    property alias ipc: ipcH
     property bool showing: false
     property real prog: showing ? 1 : 0
     Behavior on prog { NumberAnimation { duration: root.showing ? 200 : 120; easing.type: Easing.OutCubic } }
@@ -18,6 +19,8 @@ ShellPopup {
     function toggle() { showing = !showing; if (showing) NightState.refresh() }
 
     IpcHandler {
+        id: ipcH
+        enabled: false   // the always-loaded stub in shell.qml forwards here (lazy loading)
         target: "night"
         function toggle(): void { root.toggle() }
         function show(): void { root.showing = true; NightState.refresh() }

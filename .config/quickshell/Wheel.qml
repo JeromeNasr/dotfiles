@@ -10,6 +10,7 @@ import Quickshell.Hyprland
 
 ShellPopup {
     id: root
+    property alias ipc: ipcH
     property string iconFont: Theme.iconFont
     property int ringRadius: 134
     property int ringThickness: 50
@@ -141,6 +142,8 @@ ShellPopup {
     }
 
     IpcHandler {
+        id: ipcH
+        enabled: false   // the always-loaded stub in shell.qml forwards here (lazy loading)
         target: "wheel"
         function toggle(): void { root.toggleMenu() }
         function show(): void { root.openMenu() }

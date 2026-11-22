@@ -54,7 +54,7 @@ hl.bind(mainMod .. " + SHIFT + mouse:276", hl.dsp.window.move({ workspace = "e+1
 hl.bind(mainMod .. " + SHIFT + W", hl.dsp.exec_cmd("qs ipc call bar toggle")) -- Toggle bar
 
 -- Clipboard
-hl.bind(mainMod .. " + V", hl.dsp.exec_cmd("pgrep -x rofi >/dev/null && pkill -x rofi || " .. home .. "/.config/hypr/scripts/clipboard.sh"))
+hl.bind(mainMod .. " + V", hl.dsp.exec_cmd("qs ipc call clipboard toggle")) -- Clipboard history
 
 -- Screenshot fullscreen
 hl.bind("Delete", hl.dsp.exec_cmd("sh -c 'file=" .. home .. "/Pictures/$(date +%s).png; grim \"$file\"; wl-copy < \"$file\"; qs ipc call screenshot notify \"$file\"'"))

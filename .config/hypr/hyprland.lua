@@ -24,7 +24,9 @@ hl.on("hyprland.start", function()
 
     hl.exec_cmd("awww-daemon")
     hl.exec_cmd("~/.config/hypr/scripts/wallpaper-restore.sh")
-    hl.exec_cmd("sleep 0.5 && qs") -- was 2s; shell only needs the compositor socket
+    -- basic render loop: one shared GL context for all shell windows (the threaded loop gives
+    -- every popup its own render thread + context, ~2x the memory, no smoother)
+    hl.exec_cmd("sleep 0.5 && QSG_RENDER_LOOP=basic qs")
     hl.exec_cmd("~/.local/bin/boost restore")
     hl.exec_cmd("~/.local/bin/power-limit restore")
     hl.exec_cmd("~/.local/bin/power-auto")

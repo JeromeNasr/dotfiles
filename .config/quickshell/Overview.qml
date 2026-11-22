@@ -10,6 +10,7 @@ import Quickshell.Hyprland
 
 ShellPopup {
     id: root
+    property alias ipc: ipcH
 
     property bool showing: false
     property real prog: showing ? 1 : 0
@@ -24,6 +25,8 @@ ShellPopup {
     }
 
     IpcHandler {
+        id: ipcH
+        enabled: false   // the always-loaded stub in shell.qml forwards here (lazy loading)
         target: "overview"
         function toggle(): void { root.showing ? root.hide() : root.show() }
         function open(): void { root.show() }

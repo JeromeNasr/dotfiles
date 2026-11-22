@@ -14,6 +14,7 @@ import Qt.labs.folderlistmodel
 
 ShellPopup {
     id: main
+    property alias ipc: ipcH
     readonly property real ui: (screen ? screen.height : 1080) / 1080
 
     // ---- layout ----
@@ -58,6 +59,8 @@ ShellPopup {
     function toggle() { showing ? close() : open() }
 
     IpcHandler {
+        id: ipcH
+        enabled: false   // the always-loaded stub in shell.qml forwards here (lazy loading)
         target: "wallpaper"
         function toggle(): void { main.toggle() }
         function open(): void { main.open() }

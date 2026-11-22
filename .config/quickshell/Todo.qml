@@ -8,6 +8,7 @@ import Quickshell.Hyprland
 
 ShellPopup {
     id: root
+    property alias ipc: ipcH
 
     property int topGap: 4
     property int sideGap: 16
@@ -183,6 +184,8 @@ ShellPopup {
     function toggleMenu() { showing ? closeMenu() : openMenu() }
 
     IpcHandler {
+        id: ipcH
+        enabled: false   // the always-loaded stub in shell.qml forwards here (lazy loading)
         target: "todo"
         function toggle(): void { root.toggleMenu() }
         function show(): void { root.openMenu() }

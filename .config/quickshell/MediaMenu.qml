@@ -9,6 +9,7 @@ import Quickshell.Services.Mpris
 
 ShellPopup {
     id: root
+    property alias ipc: ipcH
     readonly property bool showing: Marquee.menuOpen
     property real prog: showing ? 1 : 0
     Behavior on prog { NumberAnimation { duration: root.showing ? 260 : 150; easing.type: root.showing ? Easing.OutQuint : Easing.InCubic } }
@@ -24,6 +25,8 @@ ShellPopup {
     readonly property real shownFrac: seeking ? seekFrac : Marquee.frac
 
     IpcHandler {
+        id: ipcH
+        enabled: false   // the always-loaded stub in shell.qml forwards here (lazy loading)
         target: "media"
         function toggle(): void { Marquee.menuOpen = !Marquee.menuOpen }
         function open(): void { Marquee.menuOpen = true }

@@ -8,6 +8,7 @@ import "SettingsPages"
 
 ShellPopup {
     id: root
+    property alias ipc: ipcH
     WlrLayershell.namespace: "settings"
     WlrLayershell.keyboardFocus: root.showing ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
 
@@ -175,6 +176,8 @@ ShellPopup {
     }
 
     IpcHandler {
+        id: ipcH
+        enabled: false   // the always-loaded stub in shell.qml forwards here (lazy loading)
         target: "settings"
         function toggle(): void {
             root.toggle()

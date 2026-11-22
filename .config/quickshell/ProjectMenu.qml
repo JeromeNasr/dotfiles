@@ -9,6 +9,7 @@ import Quickshell.Hyprland
 
 ShellPopup {
     id: root
+    property alias ipc: ipcH
 
     property bool showing: false
     // Only keep the surface mapped while the menu is open (or closing): an idle full-screen layer still costs the compositor every frame.
@@ -96,6 +97,8 @@ ShellPopup {
     Timer { id: prefSave; interval: 300; onTriggered: prefFile.writeAdapter() }
 
     IpcHandler {
+        id: ipcH
+        enabled: false   // the always-loaded stub in shell.qml forwards here (lazy loading)
         target: "project"
         function toggle(): void { root.toggle() }
         function show(): void { root.open() }

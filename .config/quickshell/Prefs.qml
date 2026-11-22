@@ -9,6 +9,8 @@ QtObject {
 
     // Bar clock -> Calendar, in-process (no `sh` + `qs ipc` round trip on every click)
     signal toggleCalendar()
+    // Bar network icon -> quick Wi-Fi / Bluetooth menu (x = icon centre on screen)
+    signal toggleQuick(real x)
 
     property alias clock12: a.clock12          // 12-hour clock
     property alias ampm: a.ampm                // show AM/PM suffix (12-hour only)

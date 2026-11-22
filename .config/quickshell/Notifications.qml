@@ -10,7 +10,7 @@ import QtQuick
 // the values saved here from
 //     ~/.config/quickshell/state/notifications-state.json
 //
-//   - qs ipc call notifications settings    open / close this window
+//   - qs ipc call notifsettings settings   open / close this window
 //   - right-click the original popup        calls the same IPC command
 //
 // Uses the reusable components from CustomizationSettings.qml (same directory).
@@ -171,7 +171,7 @@ Scope {
     // clear a stale flag after a crash or reload
     Component.onCompleted: uiFlag.setText('{"open":false}')
     IpcHandler {
-        target: "notifications"
+        target: "notifsettings"
         function settings(): void { root.toggleSettings() }
     }
 

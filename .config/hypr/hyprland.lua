@@ -26,13 +26,12 @@ end
 hl.on("hyprland.start", function()
     -- hl.exec_cmd("dunst") replaced with quickshell
     hl.exec_cmd("systemctl --user start hyprpolkitagent")
-    hl.exec_cmd("nm-applet")
     hl.exec_cmd("wl-paste --type text --watch cliphist store")
     hl.exec_cmd("wl-paste --type image --watch cliphist store")
     hl.exec_cmd("awww-daemon")
     hl.exec_cmd("~/.config/hypr/scripts/wallpaper-restore.sh")
     hl.exec_cmd("~/.config/hypr/scripts/live-wallpaper-pause.sh")
-    hl.exec_cmd("sleep 1 && QSG_RENDER_LOOP=basic QS_ICON_THEME=Papirus qs")
+    hl.exec_cmd("sleep 1 && QSG_RENDER_LOOP=basic QML_DISABLE_DISTANCEFIELD=1 QS_ICON_THEME=Papirus qs") -- native glyphs: crisp small text
     hl.exec_cmd("hypridle") -- idle lock + lock before sleep
 end)
 

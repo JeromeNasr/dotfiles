@@ -1323,7 +1323,7 @@ Scope {
                                     cursorShape: stackDrag.active ? Qt.ClosedHandCursor : Qt.OpenHandCursor
                                     onClicked: mouse => {
                                         if (mouse.button === Qt.RightButton) {
-                                            Quickshell.execDetached(["qs", "ipc", "call", "notifications", "settings"])
+                                            Quickshell.execDetached(["qs", "ipc", "call", "notifsettings", "settings"])
                                         } else {
                                             wrapper.close(false)
                                         }

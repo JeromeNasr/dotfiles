@@ -839,7 +839,7 @@ Scope {
             baseSize: root.sizeNetIcon
             yOffset: root.iconYOffset
             text: "\uDB80\uDC9A"
-            onClicked: root.run("qs ipc call sidepanel toggle")
+            onClicked: root.run("qs ipc call notifications toggle")
         }
     }
 

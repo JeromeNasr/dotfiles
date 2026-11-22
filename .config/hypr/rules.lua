@@ -8,11 +8,9 @@ hl.layer_rule({
     ignore_alpha = 0.15,
 })
 
--- Opacity rules for all windows except fullscreen
-hl.window_rule({
-    match = { class = ".*" },
-    opacity = "0.9 override",
-})
+-- No blanket window opacity: it fades the text along with the background and makes
+-- every app look soft. Terminals get see-through backgrounds on their own (kitty
+-- background_opacity), which keeps text fully opaque and crisp.
 
 hl.window_rule({
     match = { class = ".*", fullscreen = true },

@@ -1,394 +1,252 @@
+// PowerPage.qml — battery, power profile and CPU power limit.
+// Same look as the other pages. Polls only while Settings is open.
 import QtQuick
-import QtQuick.Controls
 import Quickshell
 import Quickshell.Io
 import "../"
 
 Item {
     id: page
+    readonly property int rightMargin: 46
+    readonly property string mono: "JetBrainsMono Nerd Font"
+    // set by SettingsWindow: true only while Settings is open
+    property bool live: true
 
-    property real marginLeft: 0
-    property real marginRight: 55
-    property real marginTop: 0
-    property real marginBottom: 0
-
-    property string currentProfile: "balanced"
-    property var availableProfiles: ["power-saver", "balanced", "performance"]
-
-    property bool hasBattery: false
-    property int batteryPercent: 0
-    property string batteryStatus: ""
-
-    readonly property var profiles: [
-        { id: "power-saver", label: "Power saver", icon: "\uf06c", desc: "Quiet, longer battery" },
-        { id: "balanced",    label: "Balanced",    icon: "\uf24e", desc: "Default behaviour" },
-        { id: "performance", label: "Performance", icon: "\uf0e7", desc: "Maximum speed" }
-    ]
-
-    function profileLabel(id) {
-        for (let i = 0; i < profiles.length; i++)
-            if (profiles[i].id === id) return profiles[i].label
-        return id.toUpperCase()
-    }
+    // ---------- battery ----------
+    property var bat: null      // { pct, status, now, full, design, rate (W), cycles }
     Process {
-        id: profileGet
-        command: ["powerprofilesctl", "get"]
-        stdout: StdioCollector {
-            onStreamFinished: {
-                const v = text.trim()
-                if (v.length > 0) page.currentProfile = v
-            }
-        }
-    }
-    Process {
-        id: profileList
-        command: ["powerprofilesctl", "list"]
-        stdout: StdioCollector {
-            onStreamFinished: {
-                const found = []
-                const re = /^\s*\*?\s*([a-z-]+):\s*$/gm
-                let m
-                while ((m = re.exec(text)) !== null) found.push(m[1])
-                if (found.length > 0) page.availableProfiles = found
-            }
-        }
-    }
-    Process {
-        id: profileSet
-        onExited: exitCode => refreshTimer.restart()
-    }
-
-    // ---- power limit (slider): 100 = full speed ... 0 = minimum (lowest possible power) ----
-    property int limitValue: 100        // saved slider position 0..100
-    property int shownValue: 100        // follows the handle while dragging
-    property int capPct: 100            // max_perf_pct currently applied
-    property bool turboOff: false
-    property bool canWrite: true        // false until the one-time sysfs permission setup is done
-
-    function limitText(v) {
-        if (v === 0) return "MINIMUM"
-        return (15 + Math.floor(v * 85 / 100)) + "% CPU" + (v < 70 ? " · no turbo" : "")
-    }
-
-    Process {
-        id: limitGet
-        command: ["power-limit", "status"]
+        id: pBat
+        command: ["sh", "-c",
+            "b=$(ls -d /sys/class/power_supply/BAT* 2>/dev/null | head -1); [ -n \"$b\" ] || exit 0; cd $b;" +
+            "r() { cat $1 2>/dev/null || echo 0; };" +
+            "echo $(r capacity) $(r status) $(r energy_now) $(r energy_full) $(r energy_full_design) $(r power_now)" +
+            " $(r charge_now) $(r charge_full) $(r charge_full_design) $(r current_now) $(r voltage_now) $(r cycle_count)"]
         stdout: StdioCollector {
             onStreamFinished: {
                 const p = text.trim().split(/\s+/)
-                if (p.length >= 5) {
-                    page.limitValue = parseInt(p[0]); page.shownValue = page.limitValue
-                    page.capPct = parseInt(p[1]); page.turboOff = p[2] === "1"
-                    page.canWrite = p[3] === "1"
-                    page.currentProfile = p[4]
-                }
+                if (p.length < 12) { page.bat = null; return }
+                const n = p.map(Number)
+                // energy_* is µWh / power_now µW; charge_* is µAh / current µA (× voltage µV)
+                const v = n[10] / 1e6
+                const useE = n[3] > 0
+                const now = useE ? n[2] / 1e6 : n[6] / 1e6 * v
+                const full = useE ? n[3] / 1e6 : n[7] / 1e6 * v
+                const design = useE ? n[4] / 1e6 : n[8] / 1e6 * v
+                const rate = Math.abs(useE ? n[5] / 1e6 : n[9] / 1e6 * v)
+                page.bat = { pct: n[0], status: p[1], now: now, full: full, design: design, rate: rate, cycles: n[11] }
             }
         }
     }
-    Process {
-        id: limitSet
-        onExited: exitCode => refreshTimer.restart()
+    Timer { interval: 5000; repeat: true; running: page.live; onTriggered: if (!pBat.running) pBat.running = true }
+
+    function hm(h) {
+        if (!isFinite(h) || h <= 0 || h > 48) return ""
+        const m = Math.round(h * 60)
+        return (m >= 60 ? Math.floor(m / 60) + "h " : "") + (m % 60) + "m"
     }
-    function setLimit(v) {
-        v = Math.max(0, Math.min(100, Math.round(v)))
-        page.limitValue = v; page.shownValue = v
-        limitSet.command = ["power-limit", String(v)]
-        limitSet.running = true
+    readonly property string batLine: {
+        if (!bat) return ""
+        const s = bat.status.toLowerCase()
+        let t = s === "discharging" && bat.rate > 0.3 ? hm(bat.now / bat.rate) + " left"
+              : s === "charging" && bat.rate > 0.3 ? hm((bat.full - bat.now) / bat.rate) + " to full"
+              : s === "not charging" ? "plugged in, not charging" : s
+        if (bat.rate > 0.3) t += "  ·  " + bat.rate.toFixed(1) + " W"
+        return t
     }
 
-    // picking a profile card moves the slider to that profile's preset
-    function setProfile(id) {
-        page.currentProfile = id
-        page.setLimit(id === "power-saver" ? 30 : id === "balanced" ? 65 : 100)
-    }
+    // ---------- profile + power limit (via ~/.local/bin/power-limit) ----------
+    property string profile: ""
+    property var profiles: []
+    property int limit: 100          // applied slider value 0..100
+    property real dragLimit: -1      // while dragging
+    property int capPct: 100
+    property bool turboOff: false
+    property bool canWrite: true
+
     Process {
-        id: batteryGet
-        command: [
-            "sh", "-c",
-            "cat /sys/class/power_supply/BAT*/capacity /sys/class/power_supply/BAT*/status 2>/dev/null | head -n 2"
-        ]
+        id: pStatus
+        command: ["sh", "-c", "power-limit status; echo '#'; powerprofilesctl list 2>/dev/null"]
         stdout: StdioCollector {
             onStreamFinished: {
-                const lines = text.trim().split("\n")
-                if (lines.length >= 2 && lines[0].length > 0) {
-                    const pct = parseInt(lines[0])
-                    if (!isNaN(pct)) {
-                        page.batteryPercent = pct
-                        page.batteryStatus = lines[1].trim()
-                        page.hasBattery = true
-                        return
-                    }
+                const [st, list] = text.split("\n#\n")
+                const p = (st || "").trim().split(/\s+/)
+                if (p.length >= 5) {
+                    page.limit = parseInt(p[0]); page.capPct = parseInt(p[1])
+                    page.turboOff = p[2] === "1"; page.canWrite = p[3] === "1"; page.profile = p[4]
                 }
-                page.hasBattery = false
+                const found = []; const re = /^\s*\*?\s*([a-z-]+):\s*$/gm; let m
+                while ((m = re.exec(list || "")) !== null) found.push(m[1])
+                if (found.length) page.profiles = found
             }
         }
     }
+    Process { id: pSet; onExited: pStatus.running = true }
+    function setLimit(v) {
+        v = Math.max(0, Math.min(100, Math.round(v)))
+        limit = v; dragLimit = -1
+        pSet.command = ["power-limit", String(v)]; pSet.running = true
+    }
+    // a profile maps to a preset limit (power-limit also sets the profile from the limit)
+    function setProfile(id) { setLimit(id === "power-saver" ? 30 : id === "balanced" ? 65 : 100) }
+    function limitText(v) { return v === 0 ? "minimum" : (15 + Math.floor(v * 85 / 100)) + "% cpu" + (v < 70 ? " · no turbo" : "") }
 
-    function refresh() {
-        limitGet.running = true
-        profileGet.running = true
-        batteryGet.running = true
+    Process {
+        id: pSetup
+        command: ["pkexec", "sh", "-c",
+            "install -m644 " + Quickshell.env("HOME") + "/dotfiles/dotfiles/.config/hypr/tmpfiles/power-limit.conf /etc/tmpfiles.d/power-limit.conf" +
+            " && systemd-tmpfiles --create /etc/tmpfiles.d/power-limit.conf"]
+        onExited: { pStatus.running = true; Quickshell.execDetached(["power-limit", "restore"]) }
     }
 
-    Timer { id: refreshTimer; interval: 250; onTriggered: page.refresh() }
+    function refresh() { pBat.running = true; pStatus.running = true }
+    onLiveChanged: if (live) refresh()
+    Component.onCompleted: refresh()
 
-    Timer {
-        interval: 5000; running: true; repeat: true
-        onTriggered: if (!batteryGet.running) batteryGet.running = true
+    // ---------- pieces ----------
+    component Act: Text {
+        id: act
+        property bool lit: false
+        property bool warn: false
+        signal clicked()
+        color: warn ? Theme.danger : lit ? Theme.accent : am.containsMouse ? Theme.text : Theme.textFaint
+        font.family: page.mono; font.pixelSize: 11; font.underline: am.containsMouse
+        MouseArea { id: am; anchors.fill: parent; anchors.margins: -4; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: act.clicked() }
     }
+    component Label: Text { width: 84; color: Theme.accent; font.family: page.mono; font.pixelSize: 12 }
+    component Faint: Text { color: Theme.textFaint; font.family: page.mono; font.pixelSize: 11 }
 
+    // ---------- layout ----------
     Flickable {
         id: flick
-        anchors.fill: parent
-        anchors.leftMargin: page.marginLeft; anchors.rightMargin: page.marginRight
-        anchors.topMargin: page.marginTop; anchors.bottomMargin: page.marginBottom
+        anchors { fill: parent; rightMargin: page.rightMargin }
         contentWidth: width
-        contentHeight: content.implicitHeight
+        contentHeight: content.implicitHeight + 8
         clip: true
         boundsBehavior: Flickable.StopAtBounds
-
-        ScrollBar.vertical: ScrollBar {
-            id: scrollBar
-
-            background: Rectangle {
-                color: "transparent"
-                radius: width / 2
-            }
-            contentItem: Rectangle {
-                color: "transparent"
-                radius: width / 2
-            }
-        }
 
         Column {
             id: content
             width: flick.width
             spacing: 14
 
-            Text {
-                text: "Power"; color: Theme.text
-                font.family: Theme.fontFamily; font.pixelSize: 19
-            }
-
+            Text { text: "Power"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: 19 }
             Rectangle { width: parent.width; height: 1; color: Theme.border }
+
+            // battery
             Column {
-                width: parent.width; spacing: 10
-                topPadding: 6
-                bottomPadding: 6
-
-                Text {
-                    text: "Power profile"; color: Theme.text
-                    font.family: Theme.fontFamily; font.pixelSize: 15; font.bold: true
-                }
-
-                Row {
-                    width: parent.width; spacing: 10
-                    topPadding: 6
-                    bottomPadding: 6
-
-                    Repeater {
-                        model: page.profiles
-
-                        delegate: Rectangle {
-                            id: card
-                            required property var modelData
-                            readonly property bool selected: page.currentProfile === modelData.id
-                            readonly property bool available: page.availableProfiles.indexOf(modelData.id) !== -1
-                            property bool hovered: false
-
-                            width: (parent.width - parent.spacing * 2) / 3; height: 100; radius: Theme.radius
-                            opacity: available ? 1.0 : 0.35
-                            color: selected ? Theme.alpha(Theme.accent, 0.10)
-                                 : hovered ? Theme.alpha(Theme.accent, 0.08)
-                                 : "#00000000"
-                            border.width: 1
-                            border.color: (selected || hovered) ? Theme.accent : Theme.border
-
-                            Column {
-                                anchors.centerIn: parent
-                                spacing: 8
-
-                                Rectangle {
-                                    width: 28; height: 28; radius: Theme.radius
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                    color: card.selected ? Theme.alpha(Theme.accent, 0.10) : Theme.alpha("#A0A0A0", 0.15)
-                                    border.width: 1
-                                    border.color: card.selected ? Theme.accent : Theme.border
-                                    Text {
-                                        anchors.centerIn: parent; text: card.modelData.icon
-                                        color: card.selected ? Theme.accent : "#A0A0A0"
-                                        font.family: Theme.iconFont; font.pixelSize: 12
-                                    }
-                                }
-
-                                Text {
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                    text: card.modelData.label; color: Theme.text
-                                    font.family: Theme.fontFamily; font.pixelSize: 12; font.bold: true
-                                }
-
-                                Text {
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                    text: card.available ? card.modelData.desc : "Unavailable"
-                                    color: Theme.textDim
-                                    font.family: Theme.fontFamily; font.pixelSize: 10
-                                }
-                            }
-
-                            MouseArea {
-                                anchors.fill: parent; hoverEnabled: true
-                                enabled: card.available
-                                cursorShape: Qt.PointingHandCursor
-                                onEntered: card.hovered = true
-                                onExited: card.hovered = false
-                                onClicked: page.setProfile(card.modelData.id)
-                            }
-                        }
-                    }
-                }
-            }
-
-
-            // ---- power limit slider ----
-            Column {
-                width: parent.width; spacing: 8
-                topPadding: 4; bottomPadding: 6
-
-                Text {
-                    text: "Power limit"; color: Theme.text
-                    font.family: Theme.fontFamily; font.pixelSize: 15; font.bold: true
-                }
-
-                Row {
-                    id: limitRow
-                    width: parent.width; height: 56; spacing: 14
-
-                    Slider {
-                        width: parent.width - minBtn.width - parent.spacing
-                        height: 56; anchors.verticalCenter: parent.verticalCenter
-                        label: ""; icon: "\uf0e7"
-                        value: page.shownValue / 100
-                        accentColor: page.limitValue === 0 ? Theme.danger : Theme.accent2
-                        displayText: page.limitText(page.shownValue)
-                        onMoved: v => page.shownValue = Math.round(v * 100)
-                        onCommitted: v => page.setLimit(v * 100)
-                    }
-
+                visible: page.bat !== null
+                width: parent.width
+                spacing: 8
+                Item {
+                    width: parent.width; height: 20
+                    Label { id: bl; anchors.verticalCenter: parent.verticalCenter; text: "battery" }
                     Rectangle {
-                        id: minBtn
-                        readonly property bool on: page.limitValue === 0
-                        property bool hovered: false
-                        width: 150; height: 46; radius: Theme.radius
-                        anchors.verticalCenter: parent.verticalCenter
-                        color: on ? Theme.alpha(Theme.danger, 0.12) : hovered ? Theme.alpha(Theme.accent, 0.08) : "#00000000"
-                        border.width: 1
-                        border.color: on ? Theme.danger : hovered ? Theme.accent : Theme.border
-                        Column {
-                            anchors.centerIn: parent; spacing: 2
-                            Text {
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                text: "Minimum"; color: minBtn.on ? Theme.danger : Theme.text
-                                font.family: Theme.fontFamily; font.pixelSize: 12; font.bold: true
-                            }
-                            Text {
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                text: "lowest possible power"; color: Theme.textDim
-                                font.family: Theme.fontFamily; font.pixelSize: 9
-                            }
-                        }
-                        MouseArea {
-                            anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                            onEntered: minBtn.hovered = true
-                            onExited: minBtn.hovered = false
-                            onClicked: page.setLimit(minBtn.on ? 100 : 0)
-                        }
-                    }
-                }
-
-                Text {
-                    width: parent.width; wrapMode: Text.WordWrap
-                    visible: !page.canWrite
-                    color: Theme.textDim
-                    font.family: Theme.fontFamily; font.pixelSize: 10
-                    text: "CPU speed cap needs a one-time setup (only the power profile changes for now). Run:\nsudo install -m644 ~/dotfiles/dotfiles/.config/hypr/tmpfiles/power-limit.conf /etc/tmpfiles.d/ && sudo systemd-tmpfiles --create /etc/tmpfiles.d/power-limit.conf"
-                }
-                Text {
-                    visible: page.canWrite
-                    color: Theme.textDim
-                    font.family: Theme.fontFamily; font.pixelSize: 10
-                    text: "CPU capped at " + page.capPct + "%" + (page.turboOff ? " · turbo boost off" : "") + " · profile " + page.currentProfile
-                }
-            }
-
-            Rectangle {
-                visible: page.hasBattery
-                width: parent.width; height: 100; radius: Theme.radius
-                color: "#00000000"; border.width: 1; border.color: Theme.border
-
-                Column {
-                    anchors.fill: parent
-                    anchors.margins: 14
-                    spacing: 8
-
-                    Row {
-                        spacing: 10
-
-                        Text {
-                            text: "Battery"; color: Theme.text
-                            font.family: Theme.fontFamily; font.pixelSize: 14; font.bold: true
-                        }
-
-                        Text {
-                            text: page.batteryStatus
-                            color: Theme.textDim
-                            font.family: Theme.fontFamily; font.pixelSize: 12
-                        }
-
-                        Text {
-                            visible: page.batteryStatus === "Charging"
-                            text: "Charging"; color: Theme.accent2
-                            font.family: Theme.fontFamily; font.pixelSize: 10
-                        }
-                    }
-
-                    Item {
-                        width: parent.width
-                        height: levelLabel.implicitHeight
-                        Text {
-                            id: levelLabel
-                            anchors.left: parent.left
-                            text: "Level"
-                            color: Theme.textDim
-                            font.family: Theme.fontFamily; font.pixelSize: 11
-                        }
-                        Text {
-                            anchors.right: parent.right
-                            text: page.batteryPercent + "%"
-                            color: Theme.text
-                            font.family: Theme.fontFamily; font.pixelSize: 11
-                        }
-                    }
-
-                    Rectangle {
-                        width: parent.width; height: 6; radius: 3
-                        color: Theme.alpha("#A0A0A0", 0.15)
-
+                        anchors { left: bl.right; right: bp.left; rightMargin: 12; verticalCenter: parent.verticalCenter }
+                        height: 4; radius: 2; color: Theme.alpha(Theme.textFaint, 0.18)
                         Rectangle {
-                            width: parent.width * Math.max(0, Math.min(1, page.batteryPercent / 100))
-                            height: parent.height; radius: 3
-                            color: page.batteryPercent <= 15 ? "#E05555" : Theme.accent2
-                            Behavior on width { NumberAnimation { duration: 200 } }
+                            width: parent.width * Math.min(1, (page.bat ? page.bat.pct : 0) / 100); height: parent.height; radius: 2
+                            color: page.bat && page.bat.pct <= 15 && page.bat.status === "Discharging" ? Theme.danger : Theme.accent
+                            Behavior on width { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
+                        }
+                    }
+                    Text { id: bp; anchors { right: bs.left; rightMargin: 14; verticalCenter: parent.verticalCenter }
+                           width: 40; horizontalAlignment: Text.AlignRight
+                           text: page.bat ? page.bat.pct + "%" : ""; color: Theme.text; font.family: page.mono; font.pixelSize: 12 }
+                    Faint { id: bs; anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                            width: 190; horizontalAlignment: Text.AlignRight; elide: Text.ElideLeft; text: page.batLine }
+                }
+                Row {
+                    x: 84
+                    spacing: 22
+                    Faint { text: page.bat ? "health " + Math.round(Math.min(100, page.bat.full / Math.max(1e-6, page.bat.design) * 100)) + "%" : "" }
+                    Faint { text: page.bat ? page.bat.full.toFixed(1) + " of " + page.bat.design.toFixed(1) + " Wh" : "" }
+                    Faint { visible: page.bat && page.bat.cycles > 0; text: page.bat ? page.bat.cycles + " cycles" : "" }
+                }
+            }
+
+            Rectangle { visible: page.bat !== null; width: parent.width; height: 1; color: Theme.border; opacity: 0.6 }
+
+            // profile
+            Item {
+                width: parent.width; height: 20
+                Label { id: pl; anchors.verticalCenter: parent.verticalCenter; text: "profile" }
+                Row {
+                    anchors { left: pl.right; verticalCenter: parent.verticalCenter }
+                    spacing: 22
+                    Repeater {
+                        model: [{ id: "power-saver", t: "power saver" }, { id: "balanced", t: "balanced" }, { id: "performance", t: "performance" }]
+                        Text {
+                            id: po
+                            required property var modelData
+                            readonly property bool cur: page.profile === modelData.id
+                            readonly property bool ok: page.profiles.length === 0 || page.profiles.indexOf(modelData.id) >= 0
+                            text: (cur ? "● " : "") + modelData.t
+                            opacity: ok ? 1 : 0.35
+                            color: cur ? Theme.accent : pm.containsMouse ? Theme.text : Theme.textFaint
+                            font.family: page.mono; font.pixelSize: 12
+                            MouseArea { id: pm; anchors.fill: parent; anchors.margins: -3; hoverEnabled: true; enabled: po.ok && !po.cur
+                                        cursorShape: Qt.PointingHandCursor; onClicked: page.setProfile(po.modelData.id) }
                         }
                     }
                 }
+            }
+
+            // cpu limit
+            Item {
+                width: parent.width; height: 20
+                Label { id: ll; anchors.verticalCenter: parent.verticalCenter; text: "cpu limit" }
+                Item {
+                    id: lbar
+                    anchors { left: ll.right; right: lt.left; rightMargin: 12; verticalCenter: parent.verticalCenter }
+                    height: 18
+                    readonly property real v: (page.dragLimit >= 0 ? page.dragLimit : page.limit) / 100
+                    readonly property bool hot: lma.containsMouse || lma.pressed
+                    Rectangle {
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: parent.width; height: lbar.hot ? 6 : 4; radius: height / 2
+                        color: Theme.alpha(Theme.textFaint, 0.18)
+                        Behavior on height { NumberAnimation { duration: 120 } }
+                        Rectangle {
+                            width: Math.max(height, parent.width * lbar.v); height: parent.height; radius: parent.radius
+                            color: page.limit === 0 && page.dragLimit < 0 ? Theme.danger : Theme.accent
+                        }
+                    }
+                    Rectangle {
+                        width: 12; height: 12; radius: 6; anchors.verticalCenter: parent.verticalCenter
+                        x: Math.round(lbar.width * lbar.v - 6); color: Theme.text
+                        opacity: lbar.hot ? 1 : 0
+                        Behavior on opacity { NumberAnimation { duration: 120 } }
+                    }
+                    MouseArea {
+                        id: lma
+                        anchors.fill: parent; anchors.topMargin: -4; anchors.bottomMargin: -4
+                        hoverEnabled: true; preventStealing: true; cursorShape: Qt.PointingHandCursor
+                        function at(x) { return Math.max(0, Math.min(100, x / lbar.width * 100)) }
+                        onPressed: m => page.dragLimit = at(m.x)
+                        onPositionChanged: m => { if (pressed) page.dragLimit = at(m.x) }
+                        // applying runs powerprofilesctl + sysfs writes, so only on release
+                        onReleased: page.setLimit(page.dragLimit)
+                    }
+                }
+                Text { id: lt; anchors { right: lmin.left; rightMargin: 16; verticalCenter: parent.verticalCenter }
+                       width: 150; horizontalAlignment: Text.AlignRight
+                       text: page.limitText(Math.round(page.dragLimit >= 0 ? page.dragLimit : page.limit))
+                       color: page.limit === 0 && page.dragLimit < 0 ? Theme.danger : Theme.text; font.family: page.mono; font.pixelSize: 12 }
+                Act { id: lmin; anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                      text: page.limit === 0 ? "back to full" : "minimum"; warn: page.limit === 0
+                      onClicked: page.setLimit(page.limit === 0 ? 100 : 0) }
+            }
+            Row {
+                x: 84
+                spacing: 16
+                Faint {
+                    text: page.canWrite
+                        ? "cpu capped at " + page.capPct + "%" + (page.turboOff ? "  ·  turbo off" : "  ·  turbo on")
+                        : "cpu cap not set up yet, only the profile changes"
+                }
+                Act { visible: !page.canWrite; text: pSetup.running ? "setting up…" : "set up"; lit: true
+                      onClicked: if (!pSetup.running) pSetup.running = true }
             }
         }
-    }
-
-    Component.onCompleted: {
-        limitGet.running = true
-        profileList.running = true
-        profileGet.running = true
-        batteryGet.running = true
     }
 }

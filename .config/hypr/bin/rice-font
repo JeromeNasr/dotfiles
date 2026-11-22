@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+"""rice-font: switch the monospace font of kitty + the Quickshell UI.
+   rice-font list | current | set "<Family>" | reset"""
+import json, os, subprocess, sys, tempfile
+H = os.path.expanduser("~")
+STATE = f"{H}/.local/state/rice/font.json"
+QS    = f"{H}/.cache/43pr/rice-font.json"
+KITTY = f"{H}/.config/kitty/font.conf"
+DEFAULT = "JetBrainsMono Nerd Font"
+# Shown in Settings > Themes when installed (see `rice-font list`). The second block comes from the
+# official repos:  ttf-martian-mono-nerd ttf-ibmplex-mono-nerd ttf-intone-nerd ttf-lilex-nerd
+#                  ttf-zed-mono-nerd ttf-space-mono-nerd ttf-0xproto-nerd ttf-recursive-nerd
+CURATED = ["JetBrainsMono Nerd Font", "FiraCode Nerd Font", "CaskaydiaCove Nerd Font",
+           "GeistMono Nerd Font", "VictorMono Nerd Font", "MonaspiceNe Nerd Font",
+           "Iosevka Nerd Font", "Hack",
+           "MartianMono Nerd Font", "BlexMono Nerd Font", "IntoneMono Nerd Font", "Lilex Nerd Font",
+           "ZedMono Nerd Font", "SpaceMono Nerd Font", "0xProto Nerd Font", "RecMonoCasual Nerd Font"]
+
+def write(path, text):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path))
+    with os.fdopen(fd, "w") as f: f.write(text)
+    os.replace(tmp, path)
+
+def installed():
+    out = subprocess.run(["fc-list", ":", "family"], capture_output=True, text=True).stdout
+    return {l.split(",")[0].strip() for l in out.splitlines()}
+
+def current():
+    try: return json.load(open(STATE))["family"]
+    except Exception: return DEFAULT
+
+def apply(fam):
+    write(STATE, json.dumps({"family": fam}))
+    write(QS, json.dumps({"family": fam}))
+    write(KITTY, f"# managed by rice-font\nfont_family {fam}\n")
+    subprocess.run(["pkill", "-USR1", "-x", "kitty"])
+    print(f"font -> {fam}")
+
+a = sys.argv[1:] or ["current"]
+if a[0] == "list":
+    have = installed()
+    cur = current()
+    for f in CURATED:
+        if f in have: print(("* " if f == cur else "  ") + f)
+elif a[0] == "current": print(current())
+elif a[0] == "set" and len(a) > 1:
+    if a[1] not in installed(): sys.exit(f"font not installed: {a[1]}")
+    apply(a[1])
+elif a[0] == "reset": apply(DEFAULT)
+else: sys.exit(__doc__)

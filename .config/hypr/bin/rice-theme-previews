@@ -1,0 +1,18 @@
+#!/usr/bin/env python3
+"""Build ~/.cache/43pr/theme-previews.json from the 43pr theme TOMLs, so the
+Quickshell Themes page can live-preview a theme on hover."""
+import json, os, glob, tomllib
+H = os.path.expanduser("~")
+M = {"bg":"qs_bg","text":"qs_text","textDim":"qs_text_dim","danger":"qs_danger","accent":"qs_accent",
+     "accent2":"qs_accent2","border":"qs_border","bgPanel":"qs_bg_panel","bgCard":"qs_bg_card",
+     "borderAccent":"qs_border_accent","textFaint":"qs_text_faint","ok":"qs_ok","trackBg":"qs_track_bg"}
+out = {}
+for f in sorted(glob.glob(f"{H}/.config/43pr/themes/*.toml")):
+    t = tomllib.load(open(f, "rb")); c = t.get("colors", {})
+    pal = {k: c[v] for k, v in M.items() if v in c}
+    pal["_swatch"] = [c.get(k, "#000000") for k in ("bg", "accent", "highlight", "term1", "term2", "term3")]
+    pal["_appearance"] = t.get("appearance", "dark")
+    out[os.path.basename(f)[:-5]] = pal
+os.makedirs(f"{H}/.cache/43pr", exist_ok=True)
+json.dump(out, open(f"{H}/.cache/43pr/theme-previews.json", "w"))
+print(len(out), "themes")

@@ -68,16 +68,18 @@ Item {
     function pretty(key) { return key.replace(/-/g, " ") }
 
     // ---------- fonts ----------
-    readonly property var fonts: [
-        { t: "JetBrains Mono", f: "JetBrainsMono Nerd Font" },
-        { t: "Fira Code",      f: "FiraCode Nerd Font" },
-        { t: "Cascadia",       f: "CaskaydiaCove Nerd Font" },
-        { t: "Geist Mono",     f: "GeistMono Nerd Font" },
-        { t: "Victor Mono",    f: "VictorMono Nerd Font" },
-        { t: "Monaspace Neon", f: "MonaspiceNe Nerd Font" },
-        { t: "Iosevka",        f: "Iosevka Nerd Font" },
-        { t: "Hack",           f: "Hack" }
-    ]
+    // installed curated fonts, from `rice-font list` (new ones appear once their package is installed)
+    property var fonts: []
+    Process {
+        id: pFonts
+        running: true
+        command: ["rice-font", "list"]
+        stdout: StdioCollector {
+            onStreamFinished: page.fonts = text.split("\n").map(l => l.replace(/^[* ] /, "").trim()).filter(f => f)
+                .map(f => ({ t: f.replace(/ Nerd Font$/, "").replace("BlexMono", "IBM Plex Mono").replace("IntoneMono", "Intel One Mono")
+                                  .replace("RecMonoCasual", "Recursive").replace(/([a-z])([A-Z])/g, "$1 $2"), f: f }))
+        }
+    }
     function setFont(family) {
         Theme.fontPreview = ""
         Quickshell.execDetached(["sh", "-c", "\"$HOME/.local/bin/rice-font\" set \"$1\"", "sh", family])

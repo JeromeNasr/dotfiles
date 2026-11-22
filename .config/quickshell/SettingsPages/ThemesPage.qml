@@ -1,492 +1,246 @@
+// ThemesPage.qml — colour source, light/dark, presets and font.
+// Same look as the other pages. Hover a preset or font to preview it live, click to apply.
 import QtQuick
-import QtQuick.Controls
-import Quickshell.Io
 import Quickshell
+import Quickshell.Io
 import "../"
 
 Item {
     id: page
-    property real marginLeft: 0
-    property real marginRight: 55
-    property real marginTop: 0
-    property real marginBottom: 0
-    property real sectionSpacing: 6
+    readonly property int rightMargin: 46
+    readonly property string mono: "JetBrainsMono Nerd Font"
+    readonly property string home: Quickshell.env("HOME")
+    property bool live: true
 
-    function editConfig(path) {
-        Quickshell.execDetached([
-            "xed",
-            path.replace(/^~/, Quickshell.env("HOME"))
-        ])
-    }
-
-    function runTheme(themeCommand) {
-        console.log("Running theme:", themeCommand)
-
-        Quickshell.execDetached([
-            "/bin/sh",
-            "-c",
-            "python3 \"$HOME/.config/43pr/bin/theme.py\" " + themeCommand
-        ])
-
-        // Re-read state.json shortly after, so the buttons reflect the new
-        // colorgen / appearance (presets can change the appearance too).
-        reloadTimer.restart()
-    }
-
+    // ---------- theme state (43pr/bin/theme.py writes it) ----------
     property bool colorGen: true
     property bool darkMode: true
-
+    property string preset: ""
+    property string source: ""         // "wallpaper" | "preset" | …
     FileView {
         id: stateView
-        path: (Quickshell.env("XDG_STATE_HOME") || (Quickshell.env("HOME") + "/.local/state"))
-              + "/43pr/state.json"
+        path: (Quickshell.env("XDG_STATE_HOME") || (page.home + "/.local/state")) + "/43pr/state.json"
         watchChanges: true
+        printErrors: false
         onFileChanged: reload()
         onLoaded: {
-            page.colorGen = stateAdapter.colorgen
-            page.darkMode = stateAdapter.mode_appearance !== "light"
-        }
-        adapter: JsonAdapter {
-            id: stateAdapter
-            property bool colorgen: true
-            property string mode_appearance: "dark"
+            try {
+                const s = JSON.parse(text())
+                page.colorGen = s.colorgen !== false
+                page.darkMode = s.mode_appearance !== "light"
+                page.preset = s.preset || ""
+                page.source = s.mode || ""
+            } catch (e) {}
         }
     }
+    Timer { id: reloadTimer; interval: 700; onTriggered: stateView.reload() }
 
-    // ---- live preview data (built by ~/.local/bin/rice-theme-previews) ----
+    function runTheme(args) {
+        Quickshell.execDetached(["python3", page.home + "/.config/43pr/bin/theme.py"].concat(args))
+        reloadTimer.restart()
+    }
+    function setColorGen(on) { colorGen = on; runTheme(["colorgen", on ? "on" : "off"]) }
+    function setDark(on) { if (on !== darkMode) { darkMode = on; runTheme(["toggle"]) } }
+    function applyPreset(key) { previewTheme(""); preset = key; runTheme(key === "default" ? ["default"] : ["preset", key]) }
+    // which preset is "current": only meaningful when colours aren't coming from the wallpaper
+    readonly property bool fromWallpaper: colorGen && source === "wallpaper"
+
+    // ---------- live previews (built by ~/.local/bin/rice-theme-previews) ----------
     property var previews: ({})
+    readonly property var presetKeys: Object.keys(previews).filter(k => k[0] !== "_").sort((a, b) => a === "default" ? -1 : b === "default" ? 1 : a.localeCompare(b))
     FileView {
-        path: Quickshell.env("HOME") + "/.cache/43pr/theme-previews.json"
+        path: page.home + "/.cache/43pr/theme-previews.json"
         watchChanges: true
         printErrors: false
         onFileChanged: reload()
         onLoaded: { try { page.previews = JSON.parse(text()) } catch (e) {} }
     }
-    Component.onCompleted: Quickshell.execDetached(["/bin/sh", "-c", "\"$HOME/.local/bin/rice-theme-previews\""])
+    Component.onCompleted: Quickshell.execDetached(["sh", "-c", "\"$HOME/.local/bin/rice-theme-previews\""])
     Component.onDestruction: { Theme.previewPalette = null; Theme.fontPreview = "" }
 
     Timer {
         id: previewTimer
-        interval: 90                       // debounce so sweeping the mouse doesn't thrash
+        interval: 90                      // debounce so sweeping the mouse doesn't thrash
         property var pending: null
         onTriggered: Theme.previewPalette = pending
     }
-    function previewTheme(key) {
-        previewTimer.pending = key && page.previews[key] ? page.previews[key] : null
-        previewTimer.restart()
-    }
+    function previewTheme(key) { previewTimer.pending = key && previews[key] ? previews[key] : null; previewTimer.restart() }
+    function pretty(key) { return key.replace(/-/g, " ") }
 
+    // ---------- fonts ----------
+    readonly property var fonts: [
+        { t: "JetBrains Mono", f: "JetBrainsMono Nerd Font" },
+        { t: "Fira Code",      f: "FiraCode Nerd Font" },
+        { t: "Cascadia",       f: "CaskaydiaCove Nerd Font" },
+        { t: "Geist Mono",     f: "GeistMono Nerd Font" },
+        { t: "Victor Mono",    f: "VictorMono Nerd Font" },
+        { t: "Monaspace Neon", f: "MonaspiceNe Nerd Font" },
+        { t: "Iosevka",        f: "Iosevka Nerd Font" },
+        { t: "Hack",           f: "Hack" }
+    ]
     function setFont(family) {
         Theme.fontPreview = ""
-        Quickshell.execDetached(["/bin/sh", "-c", "\"$HOME/.local/bin/rice-font\" set \"$1\"", "sh", family])
+        Quickshell.execDetached(["sh", "-c", "\"$HOME/.local/bin/rice-font\" set \"$1\"", "sh", family])
     }
 
-    component FontButton: Rectangle {
-        required property string family
-        required property string label
-        width: (parent.width - (parent.columns - 1) * parent.spacing) / parent.columns
-        height: 42
-        radius: Theme.radius
-        color: "#00000000"
-        border.width: 1
-        border.color: Theme.fontFamily === family ? Theme.accent : Theme.border
-        Behavior on border.color { ColorAnimation { duration: 120 } }
-
-        Text {
-            anchors.fill: parent
-            anchors.margins: 6
-            text: label + "  Aa 0O"
-            color: Theme.fontFamily === family ? Theme.accent : Theme.textDim
-            font.family: family
-            font.pixelSize: 12
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-            elide: Text.ElideRight
-        }
-        MouseArea {
-            anchors.fill: parent
-            hoverEnabled: true
-            onEntered: { parent.color = Theme.alpha(Theme.accent, 0.08); Theme.fontPreview = family }
-            onExited:  { parent.color = "#00000000"; Theme.fontPreview = "" }
-            onClicked: page.setFont(family)
-        }
+    // editor: same choice as the Configs page
+    FileView { id: editorFile; path: page.home + "/.config/quickshell/state/editor"; printErrors: false; blockLoading: true }
+    function editThemeFile() {
+        const ed = (editorFile.text() || "").trim() || "xed"
+        const f = page.home + "/.config/quickshell/Theme.qml"
+        Quickshell.execDetached(ed === "nvim" ? ["kitty", "-e", "nvim", f] : [ed, f])
     }
 
-    Timer {
-        id: reloadTimer
-        interval: 700
-        onTriggered: stateView.reload()
+    // ---------- pieces ----------
+    component Act: Text {
+        id: act
+        property bool lit: false
+        signal clicked()
+        color: lit ? Theme.accent : am.containsMouse ? Theme.text : Theme.textFaint
+        font.family: page.mono; font.pixelSize: 11; font.underline: am.containsMouse
+        MouseArea { id: am; anchors.fill: parent; anchors.margins: -4; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: act.clicked() }
     }
-
-    function setColorGen(on) {
-        page.colorGen = on
-        runTheme("colorgen " + (on ? "on" : "off"))
-    }
-
-    function toggleMode() {
-        page.darkMode = !page.darkMode      // optimistic; state.json reload corrects it
-        runTheme("toggle")
-    }
-
-    component ToggleButton: Rectangle {
-        required property string label
-        required property bool checked
-        property string valueText: checked ? "On" : "Off"
-        signal toggled()
-
-        width: parent.width
-        height: 42
-        radius: Theme.radius
-        color: "#00000000"
-        border.width: 1
-        border.color: checked ? Theme.accent : Theme.border
-
-        Text {
-            anchors.fill: parent
-            anchors.leftMargin: 6
-            anchors.rightMargin: 6
-            text: label + ": " + valueText
-            color: checked ? Theme.accent : Theme.textDim
-            font.family: Theme.fontFamily
-            font.pixelSize: 11
-            font.bold: true
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-            wrapMode: Text.WordWrap
-            maximumLineCount: 2
-            elide: Text.ElideRight
-        }
-
-        MouseArea {
-            anchors.fill: parent
-            hoverEnabled: true
-
-            onEntered: {
-                parent.color = Theme.alpha(Theme.accent, 0.08)
-                parent.border.color = Theme.accent
-            }
-
-            onExited: {
-                parent.color = "#00000000"
-                parent.border.color = parent.checked ? Theme.accent : Theme.border
-            }
-
-            onClicked: parent.toggled()
-        }
-    }
-
-    component ConfigButton: Rectangle {
-        required property string label
-        required property string path
-
-        width: parent.width
-        height: 42
-        radius: Theme.radius
-        color: "#00000000"
-        border.width: 1
-        border.color: Theme.border
-
-        Text {
-            anchors.left: parent.left
-            anchors.leftMargin: 14
-            anchors.verticalCenter: parent.verticalCenter
-            text: label
-            color: Theme.textDim
-            font.family: Theme.fontFamily
-            font.pixelSize: 13
-            font.bold: true
-        }
-
+    // "label   ● a   b"
+    component Pick: Item {
+        id: pk
+        property string label: ""
+        property var options: []           // [{ t, on }]
+        signal picked(int i)
+        width: parent.width; height: 18
+        Text { id: pl; width: 84; anchors.verticalCenter: parent.verticalCenter; text: pk.label; color: Theme.accent; font.family: page.mono; font.pixelSize: 12 }
         Row {
-            anchors.right: parent.right
-            anchors.rightMargin: 14
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 8
-
-            Text {
-                text: "\uf120"
-                color: Theme.textDim
-                font.family: Theme.iconFont
-                font.pixelSize: 13
-                anchors.verticalCenter: parent.verticalCenter
-            }
-
-            Text {
-                text: "Edit " + path.split("/").pop()
-                color: Theme.textDim
-                font.family: Theme.fontFamily
-                font.pixelSize: 12
-                font.bold: true
-                anchors.verticalCenter: parent.verticalCenter
-            }
-        }
-
-        MouseArea {
-            anchors.fill: parent
-            hoverEnabled: true
-
-            onEntered: {
-                parent.color = Theme.alpha(Theme.accent, 0.08)
-                parent.border.color = Theme.accent
-            }
-
-            onExited: {
-                parent.color = "#00000000"
-                parent.border.color = Theme.border
-            }
-
-            onClicked: page.editConfig(path)
-        }
-    }
-
-    component ThemeButton: Rectangle {
-        required property string label
-        required property string command
-        readonly property string key: command === "default" ? "default" : command.replace("preset ", "")
-        readonly property var sw: (page.previews[key] && page.previews[key]._swatch) ? page.previews[key]._swatch : []
-
-        width: (parent.width - (parent.columns - 1) * parent.spacing) / parent.columns
-        height: 58
-        radius: Theme.radius
-        color: "#00000000"
-        border.width: 1
-        border.color: Theme.border
-        Behavior on border.color { ColorAnimation { duration: 120 } }
-
-        Text {
-            anchors.top: parent.top
-            anchors.topMargin: 6
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.leftMargin: 6
-            anchors.rightMargin: 6
-            text: label
-            color: Theme.textDim
-            font.family: Theme.fontFamily
-            font.pixelSize: 11
-            font.bold: true
-            horizontalAlignment: Text.AlignHCenter
-            elide: Text.ElideRight
-        }
-
-        Row {
-            anchors.bottom: parent.bottom
-            anchors.bottomMargin: 8
-            anchors.horizontalCenter: parent.horizontalCenter
-            spacing: 4
+            anchors { left: pl.right; verticalCenter: parent.verticalCenter }
+            spacing: 22
             Repeater {
-                model: sw
-                Rectangle {
-                    width: 14; height: 14; radius: 7
-                    color: modelData
-                    border.width: 1
-                    border.color: Qt.rgba(1, 1, 1, 0.18)
+                model: pk.options
+                Text {
+                    id: o
+                    required property var modelData
+                    required property int index
+                    text: (modelData.on ? "● " : "") + modelData.t
+                    color: modelData.on ? Theme.accent : om.containsMouse ? Theme.text : Theme.textFaint
+                    font.family: page.mono; font.pixelSize: 12
+                    MouseArea { id: om; anchors.fill: parent; anchors.margins: -3; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: pk.picked(o.index) }
                 }
             }
         }
-
-        MouseArea {
-            anchors.fill: parent
-            hoverEnabled: true
-
-            onEntered: {
-                parent.color = Theme.alpha(Theme.accent, 0.08)
-                parent.border.color = Theme.accent
-                page.previewTheme(parent.key)
-            }
-
-            onExited: {
-                parent.color = "#00000000"
-                parent.border.color = Theme.border
-                page.previewTheme("")
-            }
-
-            onClicked: { page.previewTheme(""); page.runTheme(command) }
-        }
     }
 
+    // ---------- layout ----------
     Flickable {
         id: flick
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.bottom: parent.bottom
-        anchors.leftMargin: page.marginLeft
-        anchors.rightMargin: page.marginRight
-        anchors.topMargin: page.marginTop
-        anchors.bottomMargin: page.marginBottom
+        anchors { fill: parent; rightMargin: page.rightMargin }
         contentWidth: width
-        contentHeight: content.height
+        contentHeight: content.implicitHeight + 8
         clip: true
         boundsBehavior: Flickable.StopAtBounds
-
-        ScrollBar.vertical: ScrollBar {
-            id: scrollBar
-
-            background: Rectangle {
-                color: Theme.alpha(Theme.border, 0.3)
-                radius: width / 2
-            }
-
-            contentItem: Rectangle {
-                color: Theme.accent
-                radius: width / 2
-            }
-        }
 
         Column {
             id: content
             width: flick.width
             spacing: 14
 
-            Text {
-                text: "Themes"
-                color: Theme.text
-                font.family: Theme.fontFamily
-                font.pixelSize: 19
+            Text { text: "Themes"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: 19 }
+            Rectangle { width: parent.width; height: 1; color: Theme.border }
+
+            Pick {
+                label: "colours"
+                options: [{ t: "from wallpaper", on: page.colorGen }, { t: "preset", on: !page.colorGen }]
+                onPicked: i => page.setColorGen(i === 0)
+            }
+            Pick {
+                label: "mode"
+                options: [{ t: "dark", on: page.darkMode }, { t: "light", on: !page.darkMode }]
+                onPicked: i => page.setDark(i === 0)
             }
 
-            Rectangle {
-                width: parent.width
-                height: 1
-                color: Theme.border
-            }
+            Rectangle { width: parent.width; height: 1; color: Theme.border; opacity: 0.6 }
 
-            Column {
-                width: parent.width
-                spacing: page.sectionSpacing
-
-                Row {
-                    width: parent.width
-                    spacing: page.sectionSpacing
-
-                    ToggleButton {
-                        width: (parent.width - parent.spacing) / 2
-                        label: "Color generation"
-                        checked: page.colorGen
-                        onToggled: page.setColorGen(!page.colorGen)
-                    }
-
-                    ToggleButton {
-                        width: (parent.width - parent.spacing) / 2
-                        label: "Mode"
-                        checked: true
-                        valueText: page.darkMode ? "Dark" : "Light"
-                        onToggled: page.toggleMode()
-                    }
-                }
-
-                Grid {
-                    width: parent.width
-                    columns: 3
-                    spacing: page.sectionSpacing
-
-                    ThemeButton {
-                        label: "Default"
-                        command: "default"
-                    }
-                    ThemeButton {
-                        label: "White"
-                        command: "preset white"
-                    }
-                    ThemeButton {
-                        label: "Metal"
-                        command: "preset metal"
-                    }
-                    ThemeButton {
-                        label: "Slate"
-                        command: "preset slate"
-                    }
-                    ThemeButton {
-                        label: "Light Gray"
-                        command: "preset light-gray"
-                    }
-                    ThemeButton {
-                        label: "Beige"
-                        command: "preset beige"
-                    }
-                    ThemeButton {
-                        label: "Silver"
-                        command: "preset silver"
-                    }
-                    ThemeButton {
-                        label: "Gold"
-                        command: "preset gold"
-                    }
-                    ThemeButton {
-                        label: "Nord"
-                        command: "preset nord"
-                    }
-                    ThemeButton {
-                        label: "Tokyo Night"
-                        command: "preset tokyo-night"
-                    }
-                    ThemeButton {
-                        label: "Catppuccin Mocha"
-                        command: "preset catppuccin-mocha"
-                    }
-                    ThemeButton {
-                        label: "Everforest Dark"
-                        command: "preset everforest-dark"
-                    }
-                    ThemeButton {
-                        label: "Dracula"
-                        command: "preset dracula"
-                    }
-                    ThemeButton {
-                        label: "One Dark"
-                        command: "preset one-dark"
-                    }
-                    ThemeButton {
-                        label: "Kanagawa"
-                        command: "preset kanagawa"
-                    }
-                    ThemeButton {
-                        label: "Rose Pine"
-                        command: "preset rose-pine"
-                    }
-                    ThemeButton {
-                        label: "Red"
-                        command: "preset red"
-                    }
-                    ThemeButton {
-                        label: "Matrix"
-                        command: "preset matrix"
-                    }
-                }
-            }
-
-            Text {
-                text: "Font  (hover to preview, click to apply)"
-                color: Theme.textDim
-                font.family: Theme.fontFamily
-                font.pixelSize: 12
+            Item {
+                width: parent.width; height: 16
+                Text { text: "presets"; color: Theme.textDim; font.family: page.mono; font.pixelSize: 12 }
+                Text { anchors.right: parent.right; text: "hover to preview, click to apply"; color: Theme.textFaint; font.family: page.mono; font.pixelSize: 11 }
             }
 
             Grid {
+                id: grid
                 width: parent.width
-                columns: 2
-                spacing: page.sectionSpacing
-
-                FontButton { label: "JetBrains Mono"; family: "JetBrainsMono Nerd Font" }
-                FontButton { label: "Fira Code";       family: "FiraCode Nerd Font" }
-                FontButton { label: "Cascadia";        family: "CaskaydiaCove Nerd Font" }
-                FontButton { label: "Geist Mono";      family: "GeistMono Nerd Font" }
-                FontButton { label: "Victor Mono";     family: "VictorMono Nerd Font" }
-                FontButton { label: "Monaspace Neon";  family: "MonaspiceNe Nerd Font" }
-                FontButton { label: "Iosevka";         family: "Iosevka Nerd Font" }
-                FontButton { label: "Hack";            family: "Hack" }
-            }
-
-            Column {
-                width: parent.width
-                spacing: page.sectionSpacing
-
-                ConfigButton {
-                    label: "Theme"
-                    path: "~/.config/quickshell/Theme.qml"
+                columns: 3
+                columnSpacing: 18
+                rowSpacing: 2
+                Repeater {
+                    model: page.presetKeys
+                    Item {
+                        id: pr
+                        required property string modelData
+                        readonly property bool cur: !page.fromWallpaper && page.preset === modelData
+                        readonly property var sw: (page.previews[modelData] && page.previews[modelData]._swatch) || []
+                        width: (grid.width - 2 * grid.columnSpacing) / 3; height: 28
+                        Rectangle {
+                            anchors.fill: parent; anchors.leftMargin: -6; anchors.rightMargin: -6
+                            radius: 6; color: Theme.alpha(Theme.text, prm.containsMouse ? 0.05 : 0)
+                        }
+                        Row {
+                            id: swr
+                            anchors.verticalCenter: parent.verticalCenter
+                            Repeater {
+                                model: pr.sw
+                                Rectangle { required property var modelData; width: 9; height: 14; color: modelData }
+                            }
+                        }
+                        Text {
+                            anchors { left: swr.right; leftMargin: 10; right: parent.right; verticalCenter: parent.verticalCenter }
+                            elide: Text.ElideRight
+                            text: (pr.cur ? "● " : "") + page.pretty(pr.modelData)
+                            color: pr.cur ? Theme.accent : prm.containsMouse ? Theme.text : Theme.textDim
+                            font.family: page.mono; font.pixelSize: 12
+                        }
+                        MouseArea {
+                            id: prm
+                            anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                            onContainsMouseChanged: page.previewTheme(containsMouse ? pr.modelData : "")
+                            onClicked: page.applyPreset(pr.modelData)
+                        }
+                    }
                 }
             }
+            Text {
+                visible: page.presetKeys.length === 0
+                text: "building previews…"; color: Theme.textFaint; font.family: page.mono; font.pixelSize: 12
+            }
+
+            Rectangle { width: parent.width; height: 1; color: Theme.border; opacity: 0.6 }
+
+            // fonts, each shown in itself
+            Item {
+                width: parent.width; height: fontFlow.height
+                Text { id: fl; width: 84; text: "font"; color: Theme.accent; font.family: page.mono; font.pixelSize: 12 }
+                Flow {
+                    id: fontFlow
+                    anchors { left: fl.right; right: parent.right }
+                    spacing: 22
+                    Repeater {
+                        model: page.fonts
+                        Text {
+                            id: fo
+                            required property var modelData
+                            readonly property bool cur: Theme.fontFamily === modelData.f
+                            text: (cur ? "● " : "") + modelData.t
+                            color: cur ? Theme.accent : fm.containsMouse ? Theme.text : Theme.textFaint
+                            font.family: modelData.f; font.pixelSize: 13
+                            MouseArea {
+                                id: fm
+                                anchors.fill: parent; anchors.margins: -3; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                onContainsMouseChanged: Theme.fontPreview = containsMouse ? fo.modelData.f : ""
+                                onClicked: page.setFont(fo.modelData.f)
+                            }
+                        }
+                    }
+                }
+            }
+
+            Rectangle { width: parent.width; height: 1; color: Theme.border; opacity: 0.6 }
+            Act { text: "edit Theme.qml"; onClicked: page.editThemeFile() }
         }
     }
 }

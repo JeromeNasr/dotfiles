@@ -11,6 +11,8 @@ QtObject {
     signal toggleCalendar()
     // Bar network icon -> quick Wi-Fi / Bluetooth menu (x = icon centre on screen)
     signal toggleQuick(real x)
+    // Bar brightness scroll -> change it and show the on-screen level (VolumeOsd)
+    signal stepBrightness(string step)
 
     property alias clock12: a.clock12          // 12-hour clock
     property alias ampm: a.ampm                // show AM/PM suffix (12-hour only)

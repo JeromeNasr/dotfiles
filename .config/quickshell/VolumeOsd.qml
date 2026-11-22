@@ -46,6 +46,41 @@ PanelWindow {
 
     property bool ready: false
     property bool showing: false
+
+    // ---- brightness: same pill, shown when brightness changes (bar scroll, brightness keys,
+    //      `qs ipc call osd brightness 5%+`). Never goes below 2 % so the screen can't go black.
+    property string mode: "volume"          // what the pill is showing
+    property real bright: 0
+    property string pendingStep: ""
+    Process {
+        id: pBright
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const pct = parseInt((text.trim().split(",")[3] || "").replace("%", ""))
+                if (isNaN(pct)) return
+                root.bright = pct / 100
+                root.mode = "brightness"
+                root.showOsd()
+            }
+        }
+        onExited: if (root.pendingStep !== "") { const s = root.pendingStep; root.pendingStep = ""; root.stepBrightness(s) }
+    }
+    // step: "5%+", "5%-", "40%" …  (calls while one is running are coalesced, latest wins)
+    function stepBrightness(step) {
+        if (pBright.running) { pendingStep = step; return }
+        pBright.command = ["sh", "-c", "brightnessctl -q -n2% set \"$1\"; brightnessctl -m", "sh", step]
+        pBright.running = true
+    }
+    function showBrightness() { pBright.command = ["brightnessctl", "-m"]; pBright.running = true }
+    IpcHandler {
+        target: "osd"
+        function brightness(step: string): void { root.stepBrightness(step) }
+        function showBrightness(): void { root.showBrightness() }
+    }
+    Connections {
+        target: Prefs
+        function onStepBrightness(step) { root.stepBrightness(step) }
+    }
     property bool hovered: flyoutArea.containsMouse
 
     Timer {
@@ -90,10 +125,12 @@ PanelWindow {
         target: root.sink?.audio ?? null
 
         function onVolumeChanged() {
+            root.mode = "volume"
             root.triggerOsd()
         }
 
         function onMutedChanged() {
+            root.mode = "volume"
             root.triggerOsd()
         }
     }
@@ -134,6 +171,8 @@ PanelWindow {
             anchors.verticalCenter: parent.verticalCenter
 
             text: {
+                if (root.mode === "brightness")
+                    return root.bright < 0.3 ? "󰃞" : root.bright < 0.7 ? "󰃟" : "󰖙"
                 if (root.muted)
                     return "󰖁"
                 if (root.volume <= 0)
@@ -153,7 +192,8 @@ PanelWindow {
             anchors.right: parent.right
             anchors.rightMargin: 20
             anchors.verticalCenter: parent.verticalCenter
-            text: root.muted
+            text: root.mode === "brightness" ? Math.round(root.bright * 100) + "%"
+                : root.muted
                 ? "Muted"
                 : Math.round(root.volume * 100) + "%"
             font.pixelSize: 12
@@ -170,7 +210,8 @@ PanelWindow {
             radius: 4
             color: "#555555"
             Rectangle {
-                width: root.muted
+                width: root.mode === "brightness" ? parent.width * Math.min(root.bright, 1)
+                    : root.muted
                     ? 0
                     : parent.width * Math.min(root.volume, 1)
                 height: parent.height

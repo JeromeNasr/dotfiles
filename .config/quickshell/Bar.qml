@@ -805,7 +805,7 @@ Scope {
             vtext: ""
             onScrolled: delta => {
                 const step = Math.max(1, Math.round(Math.abs(delta) / 120 * 5));
-                root.run("brightnessctl set " + step + "%" + (delta > 0 ? "+" : "-"));
+                Prefs.stepBrightness(step + "%" + (delta > 0 ? "+" : "-"));   // shows the level on screen
             }
             onClicked: mouse => root.run("qs ipc call settings display")
         }

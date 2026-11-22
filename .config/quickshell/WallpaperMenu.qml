@@ -1,28 +1,26 @@
-// WallpaperMenu.qml — wallpaper picker, lives in the main shell so it opens instantly.
-// Open: SUPER+W / `qs ipc call wallpaper toggle`.
+// WallpaperMenu.qml — wallpaper picker.  SUPER+W / `qs ipc call wallpaper toggle`
+// The selected wallpaper fills the screen as a live preview; a filmstrip along the bottom
+// glides to keep the selection centred.
 // Keys: ←/→ (h/l) browse · Shift = ×5 · Home/End · R random · Enter/Space apply · Esc/Q close
-// Mouse: wheel/touchpad browse · click a side card to select · click the centre card to apply
+// Mouse: wheel browses · click a thumbnail to select, click it again to apply · click the preview to close
 pragma ComponentBehavior: Bound
 import QtQuick
-import QtQuick.Effects
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
-import Quickshell.Widgets
 import Quickshell.Hyprland
 import Qt.labs.folderlistmodel
 
 ShellPopup {
     id: main
     property alias ipc: ipcH
-    readonly property real ui: (screen ? screen.height : 1080) / 1080
+    readonly property real ui: sh / 1080
+    readonly property string mono: "JetBrainsMono Nerd Font"
 
-    // ---- layout ----
-    readonly property real cardW: 480 * ui
-    readonly property real cardH: 270 * ui
-    readonly property real gap: 30 * ui
-    readonly property real step: cardW + gap
-    readonly property real radius: 16 * ui
+    // ---- filmstrip geometry ----
+    readonly property real thumbW: 196 * ui
+    readonly property real thumbH: 110 * ui
+    readonly property real thumbGap: 10 * ui
 
     // ---- paths ----
     readonly property string home: Quickshell.env("HOME")
@@ -33,19 +31,18 @@ ShellPopup {
 
     // ---- open / close ----
     property bool showing: false
-    property bool loaded: false          // content is built on first open and then kept, so reopening is instant
+    property bool loaded: false          // built on first open, then kept (unloaded by shell.qml when idle)
     property real prog: showing ? 1 : 0
-    Behavior on prog { NumberAnimation { duration: main.showing ? 260 : 160; easing.type: main.showing ? Easing.OutQuart : Easing.InCubic } }
+    Behavior on prog { NumberAnimation { duration: main.showing ? 240 : 150; easing.type: main.showing ? Easing.OutCubic : Easing.InCubic } }
     property bool held: false
     onShowingChanged: { if (showing) { unmapTimer.stop(); held = true } else unmapTimer.restart() }
-    Timer { id: unmapTimer; interval: 200; onTriggered: main.held = false }
+    Timer { id: unmapTimer; interval: 180; onTriggered: main.held = false }
     surfaceOpen: held
 
     WlrLayershell.namespace: "wallpaper-picker"
     WlrLayershell.keyboardFocus: showing ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 
     signal opened()
-
     function open() {
         const mon = Hyprland.focusedMonitor
         if (mon) { const scr = Quickshell.screens.find(s => s.name === mon.name); if (scr) main.screen = scr }
@@ -75,19 +72,20 @@ ShellPopup {
                           if (c.wallpaper_path) main.wallpaperPath = c.wallpaper_path.replace("$HOME", main.home)
                           if (c.cache_path) main.cachePath = c.cache_path.replace("$HOME", main.home) } catch (e) {} }
     }
-    FileView {   // which wallpaper is active -> the carousel opens on it
+    FileView {   // which wallpaper is active -> the picker opens on it
         id: stateFile
         path: (Quickshell.env("XDG_STATE_HOME") || (main.home + "/.local/state")) + "/43pr/state.json"
         printErrors: false
         onLoaded: { try { main.currentWallpaper = JSON.parse(text()).wallpaper || "" } catch (e) {} }
     }
 
-    // Thumbnail generator. When it finishes, cards that were showing a fallback switch to the thumbnail.
+    // thumbnails (800x450 jpg) are made in the background; when the job ends, fallbacks swap to them
     property int thumbRev: 0
-    Process {
-        id: thumbJob
-        command: ["bash", main.pickerDir + "cache.sh", main.pickerDir]
-        onExited: main.thumbRev++
+    Process { id: thumbJob; command: ["bash", main.pickerDir + "cache.sh", main.pickerDir]; onExited: main.thumbRev++ }
+
+    // "wallhaven-1k2p8v_1920x1080.png" -> "wallhaven 1k2p8v", "clean-julian-alps.jpg" -> "julian alps"
+    function pretty(f) {
+        return String(f).replace(/\.[^.]+$/, "").replace(/_\d+x\d+$/, "").replace(/^clean-/, "").replace(/[-_]+/g, " ")
     }
 
     Loader {
@@ -98,8 +96,8 @@ ShellPopup {
 
             Connections {
                 target: main
-                function onOpened() { list.touched = false; list.snapToCurrent(); Qt.callLater(list.resnap); list.forceActiveFocus() }
-                function onCurrentWallpaperChanged() { if (!list.touched) list.snapToCurrent() }
+                function onOpened() { strip.touched = false; strip.snapToCurrent(); strip.forceActiveFocus() }
+                function onCurrentWallpaperChanged() { if (!strip.touched) strip.snapToCurrent() }
             }
 
             FolderListModel {
@@ -111,153 +109,154 @@ ShellPopup {
                 sortField: FolderListModel.Time      // newest first
                 sortReversed: true
             }
-
+            readonly property int sel: strip.currentIndex
+            readonly property string selPath: strip.count > 0 && sel >= 0 ? String(folderModel.get(sel, "filePath")) : ""
+            readonly property string selName: strip.count > 0 && sel >= 0 ? String(folderModel.get(sel, "fileName")) : ""
             function thumb(fileName) { return "file://" + main.cachePath + fileName + ".jpg" }
-            readonly property string selName: list.count > 0 ? String(folderModel.get(list.selectedIndex, "fileName")) : ""
 
-            // ---------- backdrop: the selected wallpaper, blurred, cross-fading as you browse ----------
+            // ---------- live preview: the selected wallpaper, full screen, cross-fading ----------
+            Rectangle { anchors.fill: parent; color: "black"; opacity: main.prog }
             Item {
-                id: backdrop
+                id: preview
                 anchors.fill: parent
                 opacity: main.prog
-
-                Rectangle { anchors.fill: parent; color: "black" }
-
                 property bool useA: true
-                Timer {   // small delay so holding an arrow key doesn't churn the backdrop
-                    id: bgDebounce; interval: 110
+                // short debounce so holding an arrow key doesn't decode every wallpaper on the way
+                Timer {
+                    id: pvDebounce; interval: 90
                     onTriggered: {
-                        const src = root.selName ? root.thumb(root.selName) : ""
-                        if (src === (backdrop.useA ? bgA : bgB).source.toString()) return
-                        backdrop.useA = !backdrop.useA
-                        ;(backdrop.useA ? bgA : bgB).source = src
+                        const src = root.selPath ? "file://" + root.selPath : ""
+                        const cur = preview.useA ? pvA : pvB
+                        if (src === cur.source.toString()) return
+                        preview.useA = !preview.useA
+                        ;(preview.useA ? pvA : pvB).source = src
                     }
                 }
-                Connections { target: root; function onSelNameChanged() { bgDebounce.restart() } }
-
-                Item {
-                    id: bgSrc
+                Connections { target: root; function onSelPathChanged() { pvDebounce.restart() } }
+                Image {
+                    id: pvA
                     anchors.fill: parent
-                    visible: false
-                    Image {
-                        id: bgA
-                        anchors.fill: parent
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true; smooth: true
-                        sourceSize: Qt.size(320, 180)          // tiny decode; the blur hides it
-                        opacity: backdrop.useA && status === Image.Ready ? 1 : 0
-                        Behavior on opacity { NumberAnimation { duration: 420; easing.type: Easing.InOutQuad } }
-                    }
-                    Image {
-                        id: bgB
-                        anchors.fill: parent
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true; smooth: true
-                        sourceSize: Qt.size(320, 180)
-                        opacity: !backdrop.useA && status === Image.Ready ? 1 : 0
-                        Behavior on opacity { NumberAnimation { duration: 420; easing.type: Easing.InOutQuad } }
-                    }
+                    fillMode: Image.PreserveAspectCrop
+                    asynchronous: true; smooth: true; cache: false
+                    sourceSize: Qt.size(main.sw, main.sh)
+                    opacity: preview.useA && status === Image.Ready ? 1 : 0
+                    Behavior on opacity { NumberAnimation { duration: 260; easing.type: Easing.InOutQuad } }
                 }
-                MultiEffect {
+                Image {
+                    id: pvB
                     anchors.fill: parent
-                    source: bgSrc
-                    blurEnabled: true; blur: 1.0; blurMax: 48
-                    saturation: 0.15
-                    brightness: -0.38
-                    autoPaddingEnabled: false
+                    fillMode: Image.PreserveAspectCrop
+                    asynchronous: true; smooth: true; cache: false
+                    sourceSize: Qt.size(main.sw, main.sh)
+                    opacity: !preview.useA && status === Image.Ready ? 1 : 0
+                    Behavior on opacity { NumberAnimation { duration: 260; easing.type: Easing.InOutQuad } }
                 }
-                Rectangle {   // vignette so the text stays readable
-                    anchors.fill: parent
-                    gradient: Gradient {
-                        GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, 0.35) }
-                        GradientStop { position: 0.5; color: Qt.rgba(0, 0, 0, 0.05) }
-                        GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.55) }
-                    }
+            }
+            // shade only the bottom, where the strip and text sit; the rest of the preview stays true to life
+            Rectangle {
+                anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+                height: main.thumbH + 150 * main.ui
+                opacity: main.prog
+                gradient: Gradient {
+                    GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, 0) }
+                    GradientStop { position: 0.45; color: Qt.rgba(0, 0, 0, 0.55) }
+                    GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.85) }
                 }
             }
 
             MouseArea {
                 anchors.fill: parent
                 onClicked: main.close()
-                onWheel: w => list.wheel(w)
+                onWheel: w => strip.wheel(w)
             }
 
-            // ---------- carousel ----------
-            ListView {
-                id: list
-                width: parent.width
-                height: main.cardH * 1.6
-                anchors.centerIn: parent
-                anchors.verticalCenterOffset: -30 * main.ui + (1 - main.prog) * 24 * main.ui
+            // ---------- info line ----------
+            Item {
+                id: info
+                anchors { left: parent.left; right: parent.right; bottom: strip.top; leftMargin: 44 * main.ui; rightMargin: 44 * main.ui; bottomMargin: 18 * main.ui }
+                height: 24 * main.ui
                 opacity: main.prog
-                scale: 0.96 + 0.04 * main.prog
+                transform: Translate { y: (1 - main.prog) * 16 * main.ui }
+                Row {
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 16 * main.ui
+                    Text {
+                        text: strip.count > 0 ? String(strip.currentIndex + 1).padStart(2, "0") + " / " + String(strip.count).padStart(2, "0") : ""
+                        color: Qt.rgba(1, 1, 1, 0.5); font.family: main.mono; font.pixelSize: 12 * main.ui
+                        anchors.baseline: nm.baseline
+                    }
+                    Text {
+                        id: nm
+                        text: main.pretty(root.selName)
+                        color: "white"; font.family: main.mono; font.pixelSize: 17 * main.ui
+                    }
+                    Text {
+                        visible: root.selPath !== "" && root.selPath === main.currentWallpaper
+                        text: "● in use"
+                        color: Theme.accent; font.family: main.mono; font.pixelSize: 12 * main.ui
+                        anchors.baseline: nm.baseline
+                    }
+                }
+                Text {
+                    anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                    text: "←→ browse    r random    enter apply    esc close"
+                    color: Qt.rgba(1, 1, 1, 0.45); font.family: main.mono; font.pixelSize: 11 * main.ui
+                }
+            }
+
+            // ---------- filmstrip ----------
+            ListView {
+                id: strip
+                anchors { left: parent.left; right: parent.right; bottom: parent.bottom; bottomMargin: 34 * main.ui }
+                height: main.thumbH + 14 * main.ui
+                opacity: main.prog
+                transform: Translate { y: (1 - main.prog) * 28 * main.ui }
                 orientation: ListView.Horizontal
                 model: folderModel
-                interactive: false
-                spacing: main.gap
-                focus: true
+                spacing: main.thumbGap
                 clip: false
-                cacheBuffer: main.step * 6
-                leftMargin: (width - main.cardW) / 2
-                rightMargin: (width - main.cardW) / 2
+                interactive: false
+                focus: true
+                cacheBuffer: main.thumbW * 8
+                // keep the selected thumbnail dead centre and glide there
+                highlightRangeMode: ListView.StrictlyEnforceRange
+                preferredHighlightBegin: (width - main.thumbW) / 2
+                preferredHighlightEnd: (width + main.thumbW) / 2
+                highlightMoveDuration: 280
+                highlightMoveVelocity: -1
+                highlightFollowsCurrentItem: true
 
-                property int selectedIndex: 0
-                property bool touched: false          // user has browsed since opening -> don't auto-jump
-                readonly property real centerX: width / 2
+                property bool touched: false        // browsed since opening -> don't auto-jump
 
-                // where contentX must be for card i to sit dead centre (ListView's origin moves, so ask it)
-                function xFor(i) {
-                    const keep = contentX
-                    positionViewAtIndex(i, ListView.Center)
-                    const t = contentX
-                    contentX = keep
-                    return t
-                }
                 function go(i) {
                     touched = true
-                    const n = Math.max(0, Math.min(i, count - 1))
-                    if (n === selectedIndex) return
-                    selectedIndex = n
-                    scroller.stop()
-                    scroller.to = xFor(n)
-                    scroller.start()     // starts from wherever we are, so held keys glide
+                    currentIndex = Math.max(0, Math.min(i, count - 1))
                 }
-                
-                // jump (no animation) to the wallpaper that's in use
                 function snapToCurrent() {
                     if (count <= 0) return
                     let idx = 0
                     for (let i = 0; i < count; i++)
                         if (folderModel.get(i, "filePath") === main.currentWallpaper) { idx = i; break }
-                    selectedIndex = idx
-                    resnap()
-                    Qt.callLater(resnap)               // again once the delegates exist
-                }
-                // put the selected card dead centre without animating (also after any size change)
-                function resnap() {
-                    scroller.stop()
-                    forceLayout()                      // make sure the view knows its full width before we position it
-                    contentX = xFor(selectedIndex)
+                    const d = highlightMoveDuration
+                    highlightMoveDuration = 0
+                    currentIndex = idx
+                    positionViewAtIndex(idx, ListView.Center)
+                    Qt.callLater(() => { strip.highlightMoveDuration = d })
                 }
                 onCountChanged: if (!touched) snapToCurrent()
-                onWidthChanged: resnap()
-                onLeftMarginChanged: resnap()
 
-                NumberAnimation { id: scroller; target: list; property: "contentX"; duration: 420; easing.type: Easing.OutExpo }
-
-                // touchpads send many small deltas; move one card per notch's worth
+                // touchpads send many small deltas: one thumbnail per notch's worth
                 property real wheelAcc: 0
                 function wheel(w) {
                     const d = w.angleDelta.y !== 0 ? w.angleDelta.y : -w.angleDelta.x
                     wheelAcc += d
-                    while (wheelAcc >= 120) { go(selectedIndex - 1); wheelAcc -= 120 }
-                    while (wheelAcc <= -120) { go(selectedIndex + 1); wheelAcc += 120 }
+                    while (wheelAcc >= 120) { go(currentIndex - 1); wheelAcc -= 120 }
+                    while (wheelAcc <= -120) { go(currentIndex + 1); wheelAcc += 120 }
                     w.accepted = true
                 }
-
                 function apply() {
                     if (count <= 0) return
-                    const f = folderModel.get(selectedIndex, "filePath")
+                    const f = folderModel.get(currentIndex, "filePath")
                     main.currentWallpaper = f
                     Quickshell.execDetached(["bash", main.pickerDir + "commands.sh", f])
                     main.close()
@@ -266,11 +265,11 @@ ShellPopup {
                 Keys.onPressed: e => {
                     const big = e.modifiers & Qt.ShiftModifier ? 5 : 1
                     switch (e.key) {
-                    case Qt.Key_Left: case Qt.Key_H: case Qt.Key_Up:    go(selectedIndex - big); break
-                    case Qt.Key_Right: case Qt.Key_L: case Qt.Key_Down: go(selectedIndex + big); break
+                    case Qt.Key_Left: case Qt.Key_H: case Qt.Key_Up:    go(currentIndex - big); break
+                    case Qt.Key_Right: case Qt.Key_L: case Qt.Key_Down: go(currentIndex + big); break
                     case Qt.Key_Home: go(0); break
                     case Qt.Key_End:  go(count - 1); break
-                    case Qt.Key_R: if (count > 1) { let r; do { r = Math.floor(Math.random() * count) } while (r === selectedIndex); go(r) } break
+                    case Qt.Key_R: if (count > 1) { let r; do { r = Math.floor(Math.random() * count) } while (r === currentIndex); go(r) } break
                     case Qt.Key_Return: case Qt.Key_Enter: case Qt.Key_Space: apply(); break
                     case Qt.Key_Escape: case Qt.Key_Q: case Qt.Key_W: main.close(); break
                     default: return
@@ -283,152 +282,64 @@ ShellPopup {
                     required property int index
                     required property string fileName
                     required property string filePath
-                    width: main.cardW
-                    height: list.height
+                    readonly property bool active: ListView.isCurrentItem
+                    readonly property bool inUse: filePath === main.currentWallpaper
+                    width: main.thumbW
+                    height: strip.height
 
-                    // signed distance from the centre, in cards (continuous while gliding)
-                    readonly property real off: ((x - list.contentX + width / 2) - list.centerX) / main.step
-                    readonly property real dist: Math.abs(off)
-                    readonly property real near: Math.max(0, 1 - dist)
-                    readonly property real eased: near * near * (3 - 2 * near)
-                    readonly property bool active: index === list.selectedIndex
-                    readonly property bool current: filePath === main.currentWallpaper
-
-                    z: 10 - dist
-                    visible: dist < 4.2
-                    opacity: Math.min(1, Math.max(0, 4 - dist)) * (0.45 + 0.55 * eased)
-                    scale: 0.8 + 0.3 * eased
-                    // side cards drift slightly toward the centre so the deck feels tighter
-                    transform: Translate { x: -Math.sign(d.off) * Math.min(d.dist, 3) * 26 * main.ui }
-
-                    RectangularShadow {
-                        anchors.fill: card
-                        radius: card.radius
-                        blur: 40 * main.ui
-                        spread: 2 * main.ui
-                        offset.y: 14 * main.ui
-                        color: Qt.rgba(0, 0, 0, 0.55)
-                        opacity: d.eased
-                    }
-
-                    ClippingRectangle {
-                        id: card
-                        anchors.centerIn: parent
-                        width: main.cardW; height: main.cardH
-                        radius: main.radius
-                        color: Theme.bgCard
+                    Item {
+                        id: frame
+                        width: main.thumbW; height: main.thumbH
+                        y: d.active ? 0 : 10 * main.ui
+                        Behavior on y { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                        opacity: d.active ? 1 : (ma.containsMouse ? 0.85 : 0.5)
+                        Behavior on opacity { NumberAnimation { duration: 160 } }
 
                         Image {
                             id: img
                             anchors.fill: parent
                             fillMode: Image.PreserveAspectCrop
-                            asynchronous: true; cache: true; smooth: true; mipmap: true
-                            sourceSize: Qt.size(800, 450)
-                            // thumbnail first; if it doesn't exist yet, decode the original until the cache job finishes
+                            asynchronous: true; cache: true; smooth: true
+                            sourceSize: Qt.size(main.thumbW * 2, main.thumbH * 2)
+                            // thumbnail first; until it exists, decode the original (small)
                             property bool fallback: false
                             source: fallback ? "file://" + d.filePath : root.thumb(d.fileName)
                             onStatusChanged: if (status === Image.Error && !fallback) fallback = true
                             Connections { target: main; function onThumbRevChanged() { img.fallback = false } }
-                            opacity: status === Image.Ready ? 1 : 0
-                            Behavior on opacity { NumberAnimation { duration: 180 } }
                         }
-
-                        // darken side cards a touch so the centre pops
-                        Rectangle { anchors.fill: parent; color: "black"; opacity: 0.35 * (1 - d.eased) }
-
-                        Rectangle {   // "in use" badge
-                            visible: d.current
-                            anchors { left: parent.left; top: parent.top; margins: 12 * main.ui }
-                            width: curRow.implicitWidth + 18 * main.ui; height: 24 * main.ui; radius: height / 2
-                            color: Qt.rgba(0, 0, 0, 0.55)
-                            Row {
-                                id: curRow
-                                anchors.centerIn: parent
-                                spacing: 6 * main.ui
-                                Rectangle { width: 6 * main.ui; height: width; radius: width / 2; color: Theme.accent; anchors.verticalCenter: parent.verticalCenter }
-                                Text { text: "In use"; color: "white"; font.family: Theme.fontFamily; font.pixelSize: 11 * main.ui; anchors.verticalCenter: parent.verticalCenter }
-                            }
+                        // thin outline on the selected one; a dot marks the wallpaper in use
+                        Rectangle {
+                            anchors.fill: parent
+                            color: "transparent"
+                            border.width: d.active ? 2 : 1
+                            border.color: d.active ? "white" : Qt.rgba(1, 1, 1, 0.12)
                         }
-                    }
-
-                    // selection ring, drawn outside the clip so it stays crisp
-                    Rectangle {
-                        readonly property real pad: 5 * main.ui
-                        anchors.centerIn: card
-                        width: card.width + 2 * pad; height: card.height + 2 * pad
-                        radius: card.radius + pad
-                        color: "transparent"
-                        border.width: 2.5 * main.ui
-                        border.color: Theme.accent
-                        opacity: d.active ? d.eased : 0
+                        Rectangle {
+                            visible: d.inUse
+                            width: 7 * main.ui; height: width; radius: width / 2
+                            color: Theme.accent
+                            anchors { right: parent.right; top: parent.top; margins: 7 * main.ui }
+                        }
                     }
 
                     MouseArea {
-                        anchors.fill: card
+                        id: ma
+                        anchors.fill: frame
+                        hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: d.active ? list.apply() : list.go(d.index)
-                        onWheel: w => list.wheel(w)
-                    }
-                }
-            }
-
-            // ---------- caption ----------
-            Column {
-                anchors.horizontalCenter: parent.horizontalCenter
-                y: list.y + list.height / 2 + main.cardH * 0.55 + 56 * main.ui + (1 - main.prog) * 12 * main.ui
-                opacity: main.prog
-                spacing: 6 * main.ui
-
-                Text {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    text: root.selName.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ")
-                    color: "white"
-                    font.family: Theme.fontFamily; font.pixelSize: 20 * main.ui; font.weight: Font.DemiBold
-                    font.capitalization: Font.Capitalize
-                    elide: Text.ElideMiddle
-                    width: Math.min(implicitWidth, root.width * 0.6)
-                    horizontalAlignment: Text.AlignHCenter
-                }
-                Text {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    text: list.count > 0 ? (list.selectedIndex + 1) + " / " + list.count : ""
-                    color: Qt.rgba(1, 1, 1, 0.55)
-                    font.family: Theme.fontFamily; font.pixelSize: 12 * main.ui
-                }
-
-                Item { width: 1; height: 14 * main.ui }
-
-                Row {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    spacing: 18 * main.ui
-                    Repeater {
-                        model: [["←  →", "browse"], ["R", "random"], ["Enter", "apply"], ["Esc", "close"]]
-                        delegate: Row {
-                            id: hint
-                            required property var modelData
-                            spacing: 7 * main.ui
-                            Rectangle {
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: keyT.implicitWidth + 14 * main.ui; height: 22 * main.ui; radius: 6 * main.ui
-                                color: Qt.rgba(1, 1, 1, 0.1)
-                                border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.12)
-                                Text { id: keyT; anchors.centerIn: parent; text: hint.modelData[0]; color: "white"
-                                       font.family: Theme.fontFamily; font.pixelSize: 11 * main.ui }
-                            }
-                            Text { anchors.verticalCenter: parent.verticalCenter; text: hint.modelData[1]
-                                   color: Qt.rgba(1, 1, 1, 0.55); font.family: Theme.fontFamily; font.pixelSize: 11 * main.ui }
-                        }
+                        onClicked: d.active ? strip.apply() : strip.go(d.index)
+                        onWheel: w => strip.wheel(w)
                     }
                 }
             }
 
             Text {
                 anchors.centerIn: parent
-                visible: list.count === 0 && folderModel.status === FolderListModel.Ready
+                visible: strip.count === 0 && folderModel.status === FolderListModel.Ready
                 opacity: main.prog
-                text: "No wallpapers in " + main.wallpaperPath
+                text: "no wallpapers in " + main.wallpaperPath
                 color: "white"
-                font.family: Theme.fontFamily; font.pixelSize: 15 * main.ui
+                font.family: main.mono; font.pixelSize: 14 * main.ui
             }
         }
     }

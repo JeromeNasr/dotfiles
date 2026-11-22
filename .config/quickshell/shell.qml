@@ -1,19 +1,22 @@
+//@ pragma UseQApplication
 import Quickshell
+import "colorpicker"
 
 ShellRoot {
     VolumeOsd {}
     ScreenshotOsd {}
     SettingsWindow {}
-    Notifications {}
+    RecorderOSD {}
     PowerMenu {}
     Bar {}
-    Todo {}
+    // kept from the local rice: bar popups (calendar, night light, media, displays) + touch keyboard
     Calendar {}
-    ProjectMenu {}
     NightMenu {}
     MediaMenu {}
-    Wheel {}
+    ProjectMenu {}
     Keyboard {}
-    Cheatsheet {}
-    Overview {}
+    SidePanel {}
+    Todo {}
+    Notifications {}
+    ColorPicker {}
 }

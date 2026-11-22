@@ -104,6 +104,13 @@ Scope {
         && (battery.state === UPowerDeviceState.Charging
             || battery.state === UPowerDeviceState.PendingCharge
             || battery.state === UPowerDeviceState.FullyCharged)
+    readonly property string batTime: {
+        if (!battery) return "";
+        const secs = batCharging ? battery.timeToFull : battery.timeToEmpty;
+        if (!secs || secs <= 0) return "";
+        const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60);
+        return h > 0 ? h + "h " + m + "m" : m + "m";
+    }
     readonly property bool batLow: battery !== null && !batCharging && batPct <= 15
     readonly property var batIcons: ["\uf244", "\uf243", "\uf242", "\uf241", "\uf240"]
     readonly property string batIcon: batIcons[batPct >= 90 ? 4 : batPct >= 65 ? 3 : batPct >= 40 ? 2 : batPct >= 15 ? 1 : 0]
@@ -360,6 +367,7 @@ Scope {
         property color color: Theme.text
         property bool bold: false
         property real yOffset: 0
+        property string tip: ""
         signal clicked(var mouse)
         signal scrolled(real delta)
 
@@ -410,6 +418,44 @@ Scope {
             acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
             onClicked: mouse => mod.clicked(mouse)
             onWheel: wheel => mod.scrolled(wheel.angleDelta.y)
+        }
+
+        LazyLoader {
+            active: ma.containsMouse && mod.tip !== ""
+
+            PopupWindow {
+                readonly property var win: mod.QsWindow.window
+                readonly property point p: win ? win.contentItem.mapFromItem(mod, 0, 0) : Qt.point(0, 0)
+
+                anchor.window: win
+                anchor.rect.x: root.vertical
+                    ? (cfg.position === "left" ? p.x + mod.width + 6 : p.x - implicitWidth - 6)
+                    : p.x + (mod.width - implicitWidth) / 2
+                anchor.rect.y: root.vertical
+                    ? p.y + (mod.height - implicitHeight) / 2
+                    : (cfg.position === "top" ? p.y + mod.height + 4 : p.y - implicitHeight - 4)
+                implicitWidth: tipText.implicitWidth + 20
+                implicitHeight: tipText.implicitHeight + 12
+                color: "transparent"
+                visible: true
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: 4
+                    color: root.overlayBgColor
+                    border.width: cfg.border ? 1 : 0
+                    border.color: root.borderColor
+
+                    Text {
+                        id: tipText
+                        anchors.centerIn: parent
+                        text: mod.tip
+                        color: Theme.text
+                        font.family: Theme.iconFont
+                        font.pixelSize: 12
+                    }
+                }
+            }
         }
     }
 
@@ -768,6 +814,9 @@ Scope {
             vglyph: root.batIcon
             text: root.batPct + "%"
             vtext: root.batPct + ""
+            tip: root.batTime
+                ? (root.batCharging ? "Full in " : "Time left: ") + root.batTime
+                : (root.batCharging ? "Charging" : "Estimating…")
             color: root.batLow ? Theme.danger
                  : root.vertical && root.batCharging ? Theme.accent : Theme.text
         }
@@ -790,7 +839,7 @@ Scope {
             baseSize: root.sizeNetIcon
             yOffset: root.iconYOffset
             text: "\uDB80\uDC9A"
-            onClicked: root.run("qs ipc call notifications toggle")
+            onClicked: root.run("qs ipc call sidepanel toggle")
         }
     }
 

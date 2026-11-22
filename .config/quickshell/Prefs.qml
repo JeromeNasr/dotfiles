@@ -7,6 +7,9 @@ import Quickshell.Io
 QtObject {
     id: root
 
+    // Bar clock -> Calendar, in-process (no `sh` + `qs ipc` round trip on every click)
+    signal toggleCalendar()
+
     property alias clock12: a.clock12          // 12-hour clock
     property alias ampm: a.ampm                // show AM/PM suffix (12-hour only)
     property alias seconds: a.seconds          // show seconds

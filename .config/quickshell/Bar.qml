@@ -1179,7 +1179,7 @@ Scope {
                                     return;
                                 }
                                 if (mouse.button !== Qt.LeftButton) return;
-                                root.run("qs ipc call calendar toggle");
+                                Prefs.toggleCalendar();
                             }
                         }
                     }

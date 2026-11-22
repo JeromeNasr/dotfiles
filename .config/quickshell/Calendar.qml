@@ -5,18 +5,20 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
+import Quickshell.Hyprland
 
 PanelWindow {
     id: root
 
     property bool showing: false
-    // Only keep the surface mapped while the menu is open (or closing): an idle full-screen layer still costs the compositor every frame.
-    property bool mapped: false
-    onShowingChanged: { if (showing) { unmapTimer.stop(); mapped = true } else unmapTimer.restart() }
-    Timer { id: unmapTimer; interval: 700; onTriggered: root.mapped = false }
-    visible: mapped
+    // The surface stays mapped all the time (it's only card-sized, fully transparent and
+    // click-through while hidden). Unmapping on close made Quickshell destroy the window and
+    // rebuild it, with a fresh GL context, render thread and glyph upload, on every open,
+    // and that rebuild was the stutter at the start of the pop-in.
+    visible: true
     property real prog: showing ? 1 : 0
-    Behavior on prog { NumberAnimation { duration: root.showing ? 360 : 160; easing.type: root.showing ? Easing.OutQuint : Easing.InQuad } }
+    // snappy: 200 ms in, 120 ms out
+    Behavior on prog { NumberAnimation { duration: root.showing ? 200 : 120; easing.type: root.showing ? Easing.OutCubic : Easing.InQuad } }
     property bool addOpen: false
     readonly property int selIdx: { for (let i = 0; i < 42; i++) if (cells[i].s === sel) return i; return -1 }
     readonly property real tk: Touch.k
@@ -38,13 +40,43 @@ PanelWindow {
     readonly property string todayStr: Reminders.ymd(clk.date)
     readonly property int firstDow: Prefs.weekStartMon ? 1 : 0
 
-    anchors { top: true; bottom: true; left: true; right: true }
+    // The surface is only as big as the card (+ room for the slide-in). A full-screen layer
+    // made Hyprland blur/composite the whole 1920x1080 screen on every animation frame,
+    // which is what made the pop-in stutter. Outside clicks close it via a focus grab.
+    readonly property int pad: 14
+    readonly property real gap: barCfg.thickness + barCfg.margin + 8 + (Touch.mode ? 14 : 0)
+    anchors {
+        top: barCfg.position === "top"
+        bottom: barCfg.position === "bottom"
+        left: barCfg.position === "left"
+        right: barCfg.position === "right"
+    }
+    margins {
+        top: Math.max(0, root.gap - root.pad); bottom: Math.max(0, root.gap - root.pad)
+        left: Math.max(0, root.gap - root.pad); right: Math.max(0, root.gap - root.pad)
+    }
+    implicitWidth: card.width + 2 * pad
+    // grow at once; while the card animates smaller, keep room until it has shrunk
+    implicitHeight: Math.ceil(Math.max(card.height, card.targetH)) + 2 * pad
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.namespace: "calendar"
     WlrLayershell.keyboardFocus: root.showing ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
-    mask: Region { item: root.showing ? menuRoot : null }
+    mask: Region { item: root.showing ? card : null }
+
+    // click anywhere outside the card -> close
+    property double grabClosedAt: 0
+    // armed a couple of frames after opening: grabbing in the same instant the (already
+    // mapped) surface takes keyboard focus makes Hyprland clear the grab right away
+    property bool grabArmed: false
+    onShowingChanged: { grabArmed = false; if (showing) grabTimer.restart() }
+    Timer { id: grabTimer; interval: 40; onTriggered: root.grabArmed = root.showing }
+    HyprlandFocusGrab {
+        windows: [root]
+        active: root.showing && root.grabArmed
+        onCleared: { if (root.showing) { root.grabClosedAt = Date.now(); root.close() } }
+    }
 
     SystemClock { id: clk; precision: Prefs.seconds && root.showing ? SystemClock.Seconds : SystemClock.Minutes }
 
@@ -69,7 +101,10 @@ PanelWindow {
         Qt.callLater(function () { menuRoot.forceActiveFocus() })
     }
     function close() { showing = false }
-    function toggle() { showing ? close() : open() }
+    // a click on the bar clock while open first clears the grab (closing it); don't reopen on that same click
+    function toggle() { showing ? close() : (Date.now() - grabClosedAt < 350 ? null : open()) }
+
+    Connections { target: Prefs; function onToggleCalendar() { root.toggle() } }
 
     IpcHandler {
         target: "calendar"
@@ -184,29 +219,24 @@ PanelWindow {
             e.accepted = true
         }
 
-        // transparent catcher: tap anywhere outside the card to close. No dimming, so the
-        // layer-rule blur only ever touches the card itself, never the whole screen.
-        MouseArea { anchors.fill: parent; onClicked: root.close() }
-
         // ---------- the card ----------
         Rectangle {
             id: card
+            readonly property real targetH: col.implicitHeight + 36
             width: 40 + 7 * root.cw
-            height: col.implicitHeight + 36
-            Behavior on height { NumberAnimation { duration: 320; easing.type: Easing.OutQuint } }
+            height: targetH
+            // only animate resizes while fully open, so reopening never plays a leftover resize
+            Behavior on height { enabled: root.prog > 0.999; NumberAnimation { duration: 220; easing.type: Easing.OutQuint } }
             radius: 14
             color: Theme.alpha(Theme.bgPanel, 0.88)
             border.width: 1
             border.color: Theme.alpha(Theme.text, 0.10)
 
-            readonly property real gap: barCfg.thickness + barCfg.margin + 8 + (Touch.mode ? 14 : 0)
-            x: barCfg.position === "left" ? gap
-             : barCfg.position === "right" ? root.width - width - gap : (root.width - width) / 2
-            y: barCfg.position === "bottom" ? root.height - height - gap
-             : (barCfg.position === "left" || barCfg.position === "right") ? (root.height - height) / 2 : gap
+            x: root.pad
+            y: barCfg.position === "bottom" ? root.height - height - root.pad : root.pad
 
             visible: root.prog > 0.003
-            opacity: Math.min(1, root.prog * 1.7)
+            opacity: Math.min(1, root.prog * 2.5)
             scale: 0.965 + 0.035 * root.prog
             transformOrigin: barCfg.position === "bottom" ? Item.Bottom : Item.Top
             transform: Translate { y: (1 - root.prog) * (barCfg.position === "bottom" ? 10 : -10) }

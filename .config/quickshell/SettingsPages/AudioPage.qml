@@ -1,5 +1,5 @@
 // AudioPage.qml — output / input device + volume, and per-app volume.
-// Same look as the System page: mono labels, block-segment bars, no boxes.
+// Same look as the System page: mono labels, thin bars, no boxes.
 // Bars: click or drag to set, scroll for ±5%.
 import QtQuick
 import Quickshell.Io
@@ -59,37 +59,44 @@ Item {
     Component.onCompleted: portCheck.running = true
 
     // ---------- pieces ----------
-    // block-segment volume bar; hovering previews where a click would land
-    component Blocks: Item {
+    // thin volume bar: click / drag to set, scroll for ±5%; knob shows on hover
+    component Bar: Item {
         id: bk
         property real value: 0
         property bool dim: false
         signal picked(real v)
-        readonly property int segs: Math.max(8, Math.floor((width + 2) / 8))
-        readonly property int lit: Math.round(Math.min(1, value) * segs)
-        readonly property int hoverAt: ma.containsMouse ? Math.ceil(ma.mouseX / width * segs) : -1
+        readonly property real shown: Math.min(1, value)
+        readonly property bool hot: ma.containsMouse || ma.pressed
         height: 18
 
-        function at(x) { return Math.max(0, Math.min(1, Math.ceil(x / width * segs) / segs)) }
+        function at(x) { return Math.max(0, Math.min(1, x / width)) }
 
-        Row {
+        Rectangle {
+            id: track
             anchors.verticalCenter: parent.verticalCenter
-            spacing: 2
-            Repeater {
-                model: bk.segs
-                Rectangle {
-                    required property int index
-                    width: 6; height: 12
-                    antialiasing: false
-                    color: index < bk.lit ? (bk.dim ? Theme.alpha(Theme.textFaint, 0.55) : Theme.accent)
-                         : index < bk.hoverAt ? Theme.alpha(Theme.accent, 0.35)
-                         : Theme.alpha(Theme.textFaint, 0.18)
-                }
+            width: parent.width; height: bk.hot ? 6 : 4; radius: height / 2
+            color: Theme.alpha(Theme.textFaint, 0.18)
+            Behavior on height { NumberAnimation { duration: 120 } }
+            Rectangle {
+                width: Math.max(height, parent.width * bk.shown); height: parent.height; radius: parent.radius
+                color: bk.dim ? Theme.alpha(Theme.textFaint, 0.55) : Theme.accent
+                Behavior on width { enabled: !ma.pressed; NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
             }
+        }
+        Rectangle {
+            width: 12; height: 12; radius: 6
+            anchors.verticalCenter: parent.verticalCenter
+            x: Math.round(bk.width * bk.shown - width / 2)
+            color: bk.dim ? Theme.textFaint : Theme.text
+            opacity: bk.hot ? 1 : 0
+            scale: ma.pressed ? 1.15 : 1
+            Behavior on opacity { NumberAnimation { duration: 120 } }
+            Behavior on scale { NumberAnimation { duration: 100 } }
         }
         MouseArea {
             id: ma
             anchors.fill: parent
+            anchors.topMargin: -4; anchors.bottomMargin: -4
             hoverEnabled: true
             preventStealing: true
             cursorShape: Qt.PointingHandCursor
@@ -118,7 +125,7 @@ Item {
             Text { width: parent.width - 8; text: vl.label; elide: Text.ElideRight; color: Theme.accent; font.family: page.mono; font.pixelSize: 12 }
             Text { width: parent.width - 8; visible: vl.sub !== ""; text: vl.sub; elide: Text.ElideRight; color: Theme.textFaint; font.family: page.mono; font.pixelSize: 10 }
         }
-        Blocks {
+        Bar {
             anchors { left: lab.right; right: pctText.left; rightMargin: 10; verticalCenter: parent.verticalCenter }
             value: vl.vol
             dim: vl.muted

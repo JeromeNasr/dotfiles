@@ -221,13 +221,12 @@ Item {
         Text { text: parent.v; color: Theme.text; font.family: page.mono; font.pixelSize: 12 }
     }
 
-    // one live line:  cpu  ▮▮▮▮▮▯▯▯▯▯  9%  56°C · 2.2 GHz
+    // one live line:  cpu  ━━━━━──────  9%  56°C · 2.2 GHz
     component Meter: Item {
         id: mt
         property string label: ""
         property real value: 0
         property string extra: ""
-        readonly property int segs: 40
         readonly property color tone: value >= 85 ? Theme.danger : Theme.accent
         width: parent.width
         height: 20
@@ -237,15 +236,17 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             spacing: 0
             Text { width: 52; text: mt.label; color: Theme.textDim; font.family: page.mono; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
-            Row {
-                spacing: 2
+            Item {
+                width: 318; height: 12
                 anchors.verticalCenter: parent.verticalCenter
-                Repeater {
-                    model: mt.segs
+                Rectangle {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: parent.width; height: 4; radius: 2
+                    color: Theme.alpha(Theme.textFaint, 0.18)
                     Rectangle {
-                        required property int index
-                        width: 6; height: 12
-                        color: index < Math.round(mt.value / 100 * mt.segs) ? mt.tone : Theme.alpha(Theme.textFaint, 0.18)
+                        width: parent.width * Math.min(1, mt.value / 100); height: parent.height; radius: 2
+                        color: mt.tone
+                        Behavior on width { NumberAnimation { duration: 400; easing.type: Easing.OutCubic } }
                     }
                 }
             }

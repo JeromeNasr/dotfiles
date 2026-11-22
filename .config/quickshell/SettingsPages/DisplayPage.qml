@@ -1,52 +1,69 @@
+// DisplayPage.qml — brightness, night light, and per-monitor scale / resolution / refresh.
+// Same look as System and Audio: mono labels, thin bars, plain-text options.
 import QtQuick
-import QtQuick.Controls
 import Quickshell
 import Quickshell.Io
+import Quickshell.Hyprland
 import "../"
 
 Item {
     id: page
+    readonly property int rightMargin: 46
+    readonly property string mono: "JetBrainsMono Nerd Font"
+    // set by SettingsWindow: true only while Settings is open
+    property bool live: true
 
     property var monitors: []
     property var savedState: ({})
-    property real marginLeft: 0
-    property real marginRight: 55
-    property real marginTop: 0
-    property real marginBottom: 0
-    property real brightnessValue: 0.6
-    readonly property real nightlightValue: (NightState.temp - 1500) / 5000
-    readonly property bool nightlightEnabled: NightState.on
-    property real sliderMarginRight: 10
-    property real labelWidth: 96
     readonly property string stateDir: Quickshell.env("HOME") + "/.config/quickshell/state"
     readonly property var activeMonitors: monitors.filter(m => !m.disabled)
 
+    // ---------- brightness ----------
+    property real brightness: 0
+    property bool brightDragging: false
     Process {
         id: brightnessGet
         command: ["brightnessctl", "-m"]
         stdout: StdioCollector {
             onStreamFinished: {
                 const parts = text.trim().split(",")
-                if (parts.length >= 4) {
-                    const pct = parseInt(parts[3])
-                    if (!isNaN(pct)) page.brightnessValue = pct / 100
-                }
+                const pct = parseInt(parts[3])
+                if (!isNaN(pct) && !page.brightDragging) page.brightness = pct / 100
             }
         }
     }
-
-    Process { id: brightnessSet }
-
-    function commitBrightness(value) {
-        const pct = Math.round(value * 100) + "%"
-        brightnessSet.command = ["brightnessctl", "set", pct]
-        brightnessSet.running = true
+    // follow brightness keys while the page is open
+    Timer { interval: 1500; repeat: true; running: page.live && !page.brightDragging; onTriggered: brightnessGet.running = true }
+    // apply while dragging, at most ~25x/s
+    property real brightPending: -1
+    Timer {
+        id: brightApply; interval: 40
+        onTriggered: if (page.brightPending >= 0) {
+            Quickshell.execDetached(["brightnessctl", "-q", "set", Math.max(1, Math.round(page.brightPending * 100)) + "%"])
+            page.brightPending = -1
+        }
+    }
+    function setBrightness(v) {
+        brightness = v
+        brightPending = v
+        if (!brightApply.running) brightApply.start()
     }
 
-    // Night light is shared with the moon icon in the bar (NightState -> hypr/bin/night -> hyprsunset).
-    function nightlightOn() { NightState.setOn(true) }
-    function nightlightOff() { NightState.setOn(false) }
-    function commitNightlight(value) { NightState.set(Math.round((1500 + value * 5000) / 50) * 50) }
+    // ---------- night light (shared with the bar's moon: NightState -> hypr/bin/night) ----------
+    readonly property bool nightOn: NightState.on
+    readonly property real nightValue: Math.max(0, Math.min(1, (NightState.temp - 1500) / 5000))
+    property real nightPending: -1
+    Timer {
+        id: nightApply; interval: 60
+        onTriggered: if (page.nightPending >= 0) {
+            NightState.set(Math.round((1500 + page.nightPending * 5000) / 50) * 50)
+            page.nightPending = -1
+        }
+    }
+    function setNight(v) {
+        nightPending = v
+        if (!nightApply.running) nightApply.start()
+    }
 
     Process {
         id: stateDirProcess
@@ -403,352 +420,235 @@ Item {
         } catch (error) {}
     }
 
-    Timer { id: refreshTimer; interval: 250; onTriggered: page.refresh() }
 
-    Process {
-        id: pEditConfig
-        command: ["sh", "-c", "xed ~/.config/hypr/monitors.lua"]
-        onExited: exitCode => {}
+    function monLabel(m) {
+        if (/^(eDP|LVDS|DSI)/.test(m.name)) return "built-in"
+        const model = /^0x[0-9a-f]+$/i.test(m.model || "") ? "" : (m.model || "")
+        return ((m.make || "") + " " + model).trim()
     }
 
-    function editConfig() {
-        if (pEditConfig.running) {
-            return
+    // scales that give a whole-pixel logical size (what Hyprland accepts), in a sane range
+    function scaleOptions(mon) {
+        const out = []
+        for (let i = 84; i <= 240; i++) {
+            const s = i / 120, lw = mon.width / s, lh = mon.height / s
+            if (Math.abs(lw - Math.round(lw)) > 1e-4 || Math.abs(lh - Math.round(lh)) > 1e-4) continue
+            if (lw < 1000 && s !== 1) continue
+            const two = Math.round(s * 100) / 100
+            if (Math.abs(s - two) > 1e-6 && [4/3, 5/3].every(k => Math.abs(s - k) > 1e-6)) continue
+            out.push(s)
         }
-        pEditConfig.running = true
+        if (!out.some(s => Math.abs(s - mon.scale) < 0.004)) out.push(mon.scale)
+        return out.sort((a, b) => a - b)
     }
 
+    Timer { id: refreshTimer; interval: 250; onTriggered: page.refresh() }
+    // pick up monitors being plugged in / out
+    Connections {
+        target: Hyprland
+        function onRawEvent(ev) { if (ev.name.indexOf("monitor") === 0) refreshTimer.restart() }
+    }
+    onLiveChanged: if (live) { refreshTimer.restart(); brightnessGet.running = true; NightState.refresh() }
+
+    Process { id: pEditConfig; command: ["sh", "-c", "xdg-open ~/.config/hypr/monitors.lua || xed ~/.config/hypr/monitors.lua"] }
+
+    // ---------- pieces ----------
+    // thin bar: click / drag to set, scroll ±5%; knob on hover
+    component Bar: Item {
+        id: bk
+        property real value: 0
+        property bool dim: false
+        signal picked(real v)
+        signal released()
+        readonly property bool hot: ma.containsMouse || ma.pressed
+        readonly property alias pressed: ma.pressed
+        height: 18
+        function at(x) { return Math.max(0, Math.min(1, x / width)) }
+        Rectangle {
+            anchors.verticalCenter: parent.verticalCenter
+            width: parent.width; height: bk.hot ? 6 : 4; radius: height / 2
+            color: Theme.alpha(Theme.textFaint, 0.18)
+            Behavior on height { NumberAnimation { duration: 120 } }
+            Rectangle {
+                width: Math.max(height, parent.width * Math.min(1, bk.value)); height: parent.height; radius: parent.radius
+                color: bk.dim ? Theme.alpha(Theme.textFaint, 0.55) : Theme.accent
+                Behavior on width { enabled: !ma.pressed; NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+            }
+        }
+        Rectangle {
+            width: 12; height: 12; radius: 6
+            anchors.verticalCenter: parent.verticalCenter
+            x: Math.round(bk.width * Math.min(1, bk.value) - width / 2)
+            color: bk.dim ? Theme.textFaint : Theme.text
+            opacity: bk.hot ? 1 : 0
+            scale: ma.pressed ? 1.15 : 1
+            Behavior on opacity { NumberAnimation { duration: 120 } }
+            Behavior on scale { NumberAnimation { duration: 100 } }
+        }
+        MouseArea {
+            id: ma
+            anchors.fill: parent; anchors.topMargin: -4; anchors.bottomMargin: -4
+            hoverEnabled: true; preventStealing: true
+            cursorShape: Qt.PointingHandCursor
+            onPressed: m => bk.picked(bk.at(m.x))
+            onPositionChanged: m => { if (pressed) bk.picked(bk.at(m.x)) }
+            onReleased: bk.released()
+        }
+        WheelHandler { onWheel: e => bk.picked(Math.max(0, Math.min(1, bk.value + (e.angleDelta.y > 0 ? 0.05 : -0.05)))) }
+    }
+
+    // small text action:  mute / set main / disable …
+    component Act: Text {
+        id: act
+        property bool lit: false
+        signal clicked()
+        color: lit ? Theme.accent : am.containsMouse ? Theme.text : Theme.textFaint
+        font.family: page.mono; font.pixelSize: 11; font.underline: am.containsMouse
+        MouseArea { id: am; anchors.fill: parent; anchors.margins: -4; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: act.clicked() }
+    }
+
+    // a row of plain-text choices; the current one is accent + dot
+    component Choices: Item {
+        id: ch
+        property string label: ""
+        property var options: []          // [{ text, key, current }]
+        signal chosen(var key)
+        width: parent.width
+        height: flow.implicitHeight
+        Text { id: cl; width: 84; text: ch.label; color: Theme.textDim; font.family: page.mono; font.pixelSize: 12 }
+        Flow {
+            id: flow
+            anchors { left: cl.right; right: parent.right }
+            spacing: 18
+            Repeater {
+                model: ch.options
+                Text {
+                    id: opt
+                    required property var modelData
+                    text: (modelData.current ? "● " : "") + modelData.text
+                    color: modelData.current ? Theme.accent : om.containsMouse ? Theme.text : Theme.textFaint
+                    font.family: page.mono; font.pixelSize: 12
+                    MouseArea { id: om; anchors.fill: parent; anchors.margins: -3; hoverEnabled: true
+                                cursorShape: opt.modelData.current ? Qt.ArrowCursor : Qt.PointingHandCursor
+                                onClicked: if (!opt.modelData.current) ch.chosen(opt.modelData.key) }
+                }
+            }
+        }
+    }
+
+    // ---------- layout ----------
     Flickable {
         id: flick
-        anchors.fill: parent
-        anchors.leftMargin: page.marginLeft; anchors.rightMargin: page.marginRight
-        anchors.topMargin: page.marginTop; anchors.bottomMargin: page.marginBottom
+        anchors { fill: parent; rightMargin: page.rightMargin }
         contentWidth: width
-        contentHeight: content.implicitHeight
+        contentHeight: content.implicitHeight + 8
         clip: true
         boundsBehavior: Flickable.StopAtBounds
-
-        ScrollBar.vertical: ScrollBar {
-            id: scrollBar
-
-            background: Rectangle {
-                color: "transparent"
-                radius: width / 2
-            }
-
-            contentItem: Rectangle {
-                color: "transparent"
-                radius: width / 2
-            }
-        }
 
         Column {
             id: content
             width: flick.width
             spacing: 14
 
-            Text {
-                text: "Display"; color: Theme.text
-                font.family: Theme.fontFamily; font.pixelSize: 19
-            }
-
+            Text { text: "Display"; color: Theme.text; font.family: Theme.fontFamily; font.pixelSize: 19 }
             Rectangle { width: parent.width; height: 1; color: Theme.border }
+            Item { width: 1; height: 2 }
 
-            Row {
-                width: parent.width; height: 38; spacing: 8
-
-                Rectangle {
-                    width: 28; height: 28; radius: Theme.radius; anchors.verticalCenter: parent.verticalCenter
-                    color: Theme.alpha(Theme.accent2, 0.10); border.width: 1; border.color: Theme.border
-                    Text {
-                        anchors.centerIn: parent; text: "\uf185"; color: Theme.accent2
-                        font.family: Theme.iconFont; font.pixelSize: 12
-                    }
+            // brightness
+            Item {
+                width: parent.width; height: 20
+                Text { id: bl; width: 84; anchors.verticalCenter: parent.verticalCenter; text: "brightness"; color: Theme.accent; font.family: page.mono; font.pixelSize: 12 }
+                Bar {
+                    id: brBar
+                    anchors { left: bl.right; right: bp.left; rightMargin: 10; verticalCenter: parent.verticalCenter }
+                    value: page.brightness
+                    onPicked: v => { page.brightDragging = brBar.pressed; page.setBrightness(Math.max(0.01, v)) }
+                    onReleased: page.brightDragging = false
                 }
-
-                Text {
-                    width: page.labelWidth; anchors.verticalCenter: parent.verticalCenter
-                    text: "Brightness"; color: Theme.text
-                    font.family: Theme.fontFamily; font.pixelSize: 15
-                }
-
-                Slider {
-                    width: parent.width - 28 - page.labelWidth - 16 - page.sliderMarginRight
-                    height: 72; anchors.verticalCenter: parent.verticalCenter
-                    label: ""; icon: ""; value: page.brightnessValue; accentColor: Theme.accent2
-                    onCommitted: value => page.commitBrightness(value)
-                }
+                Text { id: bp; anchors { right: parent.right; rightMargin: 58; verticalCenter: parent.verticalCenter }
+                       width: 40; horizontalAlignment: Text.AlignRight
+                       text: Math.round(page.brightness * 100) + "%"; color: Theme.text; font.family: page.mono; font.pixelSize: 12 }
             }
 
-            Row {
-                width: parent.width; height: 38; spacing: 10
-
-                Rectangle {
-                    width: 28; height: 28; radius: Theme.radius; anchors.verticalCenter: parent.verticalCenter
-                    color: page.nightlightEnabled ? Theme.alpha(Theme.accent, 0.10) : Theme.alpha("#A0A0A0", 0.15)
-                    border.width: 1; border.color: page.nightlightEnabled ? Theme.accent : Theme.border
-                    Text {
-                        anchors.centerIn: parent; text: "\uf186"
-                        color: page.nightlightEnabled ? Theme.accent : "#A0A0A0"
-                        font.family: Theme.iconFont; font.pixelSize: 12
-                    }
-                    MouseArea {
-                        anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                        onClicked: page.nightlightEnabled ? page.nightlightOff() : page.nightlightOn()
-                    }
+            // night light: slider = colour temperature (left = warmer)
+            Item {
+                width: parent.width; height: 20
+                Text { id: nl; width: 84; anchors.verticalCenter: parent.verticalCenter; text: "night light"; color: Theme.accent; font.family: page.mono; font.pixelSize: 12 }
+                Bar {
+                    anchors { left: nl.right; right: np.left; rightMargin: 10; verticalCenter: parent.verticalCenter }
+                    value: page.nightValue
+                    dim: !page.nightOn
+                    onPicked: v => page.setNight(v)
                 }
-
-                Text {
-                    width: page.labelWidth; anchors.verticalCenter: parent.verticalCenter
-                    text: "Night light"; color: page.nightlightEnabled ? Theme.text : Theme.text
-                    font.family: Theme.fontFamily; font.pixelSize: 15
-                }
-
-                Slider {
-                    width: parent.width - 28 - page.labelWidth - 16 - page.sliderMarginRight
-                    height: 72; anchors.verticalCenter: parent.verticalCenter
-                    label: ""; icon: ""; value: page.nightlightValue; accentColor: Theme.accent2
-                    onMoved: value => page.commitNightlight(value)
-                }
+                Text { id: np; anchors { right: ntog.left; rightMargin: 14; verticalCenter: parent.verticalCenter }
+                       width: 44; horizontalAlignment: Text.AlignRight
+                       text: NightState.temp + "K"; color: page.nightOn ? Theme.text : Theme.textFaint; font.family: page.mono; font.pixelSize: 12 }
+                Act { id: ntog; anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                      width: 44; horizontalAlignment: Text.AlignRight
+                      text: page.nightOn ? "on" : "off"
+                      lit: page.nightOn
+                      onClicked: NightState.setOn(!page.nightOn) }
             }
 
-            Column {
-                width: parent.width; spacing: 8
+            Item { width: 1; height: 4 }
+            Rectangle { width: parent.width; height: 1; color: Theme.border; opacity: 0.6 }
 
-                Repeater {
-                    model: page.monitors
+            // monitors
+            Repeater {
+                model: page.monitors
+                Column {
+                    id: mon
+                    required property var modelData
+                    readonly property bool off: modelData.disabled === true
+                    readonly property bool main: page.isMain(modelData)
+                    width: content.width
+                    spacing: 10
+                    bottomPadding: 8
 
-                    delegate: Rectangle {
-                        id: card
-                        required property var modelData
-                        property bool off: modelData.disabled === true
-                        property bool main: page.isMain(modelData)
-                        width: parent.width
-                        height: cardColumn.implicitHeight + 20
-                        radius: Theme.radius
-                        color: "#00000000"; border.width: 1
-                        border.color: modelData.focused && !off ? "#454545" : Theme.border
-
-                        Column {
-                            id: cardColumn
-                            anchors.left: parent.left; anchors.right: parent.right
-                            anchors.top: parent.top
-                            anchors.margins: 10
-                            spacing: 6
-
-                            Item {
-                                width: parent.width; height: 24
-
-                                Row {
-                                    anchors.left: parent.left
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    spacing: 8
-
-                                    Text {
-                                        text: card.modelData.name
-                                        color: card.off ? Theme.textDim : Theme.text
-                                        font.family: Theme.fontFamily; font.pixelSize: 14; font.bold: true
-                                    }
-
-                                    Text {
-                                        visible: !card.off
-                                        text: card.modelData.width + "x" + card.modelData.height + " @ " + Math.round(card.modelData.refreshRate) + "Hz"
-                                        color: Theme.textDim; font.family: Theme.fontFamily; font.pixelSize: 12
-                                    }
-                                }
-
-                                Row {
-                                    anchors.right: parent.right
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    spacing: 6
-
-                                    Rectangle {
-                                        visible: !card.off && page.activeMonitors.length > 1
-                                        width: 84; height: 24; radius: Theme.radius
-                                        color: card.main ? Theme.alpha(Theme.accent, 0.10) : (mainMouse.containsMouse ? Theme.alpha(Theme.accent, 0.08) : "#00000000")
-                                        border.width: 1
-                                        border.color: card.main || mainMouse.containsMouse ? Theme.accent : Theme.border
-
-                                        Text {
-                                            anchors.centerIn: parent
-                                            text: card.main ? "Main" : "Set main"
-                                            color: card.main ? Theme.accent : Theme.text
-                                            font.family: Theme.fontFamily; font.pixelSize: 11; font.bold: true
-                                        }
-
-                                        MouseArea {
-                                            id: mainMouse
-                                            anchors.fill: parent; hoverEnabled: true
-                                            enabled: !card.main
-                                            cursorShape: card.main ? Qt.ArrowCursor : Qt.PointingHandCursor
-                                            onClicked: page.setMainMonitor(card.modelData)
-                                        }
-                                    }
-
-                                    Rectangle {
-                                        visible: card.off || page.activeMonitors.length > 1
-                                        width: 72; height: 24; radius: Theme.radius
-                                        color: toggleMouse.containsMouse ? Theme.alpha(Theme.accent, 0.08) : "#00000000"
-                                        border.width: 1
-                                        border.color: toggleMouse.containsMouse ? Theme.accent : Theme.border
-
-                                        Text {
-                                            anchors.centerIn: parent
-                                            text: card.off ? "Enable" : "Disable"
-                                            color: Theme.text
-                                            font.family: Theme.fontFamily; font.pixelSize: 11; font.bold: true
-                                        }
-
-                                        MouseArea {
-                                            id: toggleMouse
-                                            anchors.fill: parent; hoverEnabled: true
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: page.setMonitorEnabled(card.modelData, card.off)
-                                        }
-                                    }
-                                }
-                            }
-
-                            Row {
-                                visible: !card.off
-                                width: parent.width; spacing: 8
-
-                                Text {
-                                    id: scaleLabel
-                                    width: 36; anchors.verticalCenter: parent.verticalCenter
-                                    text: "Scale"; color: Theme.textDim
-                                    font.family: Theme.fontFamily; font.pixelSize: 11
-                                }
-
-                                Slider {
-                                    width: parent.width - 36 - 44 - 16
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    icon: "\uf00e"
-                                    value: Math.max(0, Math.min(1, (card.modelData.scale - 0.7) / 0.6))
-                                    onCommitted: value => page.setScale(card.modelData, 0.7 + value * 0.6)
-                                }
-
-                                Text {
-                                    width: 44; anchors.verticalCenter: parent.verticalCenter
-                                    horizontalAlignment: Text.AlignRight
-                                    text: card.modelData.scale.toFixed(2) + "x"
-                                    color: Theme.text
-                                    font.family: Theme.fontFamily; font.pixelSize: 11
-                                }
-                            }
-
-                            Row {
-                                visible: !card.off
-                                width: parent.width; spacing: 8
-
-                                Text {
-                                    width: 36; height: 28
-                                    verticalAlignment: Text.AlignVCenter
-                                    text: "Res"; color: Theme.textDim
-                                    font.family: Theme.fontFamily; font.pixelSize: 11
-                                }
-
-                                Flow {
-                                    width: parent.width - 36 - 8; spacing: 6
-
-                                    Repeater {
-                                        model: card.off ? [] : page.resolutionList(card.modelData)
-
-                                        delegate: Rectangle {
-                                            id: resButton
-                                            required property string modelData
-                                            property bool current: modelData === card.modelData.width + "x" + card.modelData.height
-                                            width: 92; height: 28; radius: Theme.radius
-                                            color: current ? Theme.alpha(Theme.accent, 0.10) : (resMouse.containsMouse ? Theme.alpha(Theme.accent, 0.08) : "#00000000")
-                                            border.width: 1
-                                            border.color: current || resMouse.containsMouse ? Theme.accent : Theme.border
-
-                                            Text {
-                                                anchors.centerIn: parent
-                                                text: resButton.modelData
-                                                color: Theme.text
-                                                font.family: Theme.fontFamily; font.pixelSize: 11; font.bold: true
-                                            }
-
-                                            MouseArea {
-                                                id: resMouse
-                                                anchors.fill: parent; hoverEnabled: true
-                                                cursorShape: Qt.PointingHandCursor
-                                                onClicked: {
-                                                    const mode = page.bestMode(card.modelData, resButton.modelData)
-                                                    if (mode) page.setResolution(card.modelData, mode)
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            Row {
-                                visible: !card.off
-                                width: parent.width; spacing: 8
-
-                                Text {
-                                    width: 36; height: 28
-                                    verticalAlignment: Text.AlignVCenter
-                                    text: "HZ"; color: Theme.textDim
-                                    font.family: Theme.fontFamily; font.pixelSize: 11
-                                }
-
-                                Flow {
-                                    width: parent.width - 36 - 8; spacing: 6
-
-                                    Repeater {
-                                        model: card.off ? [] : page.refreshRates(card.modelData)
-
-                                        delegate: Rectangle {
-                                            id: rateButton
-                                            required property var modelData
-                                            property bool current: Math.abs(modelData - card.modelData.refreshRate) < 0.05
-                                            width: 76; height: 28; radius: Theme.radius
-                                            color: current ? Theme.alpha(Theme.accent, 0.10) : (rateMouse.containsMouse ? Theme.alpha(Theme.accent, 0.08) : "#00000000")
-                                            border.width: 1
-                                            border.color: current || rateMouse.containsMouse ? Theme.accent : Theme.border
-
-                                            Text {
-                                                anchors.centerIn: parent
-                                                text: rateButton.modelData.toFixed(2)
-                                                color: Theme.text
-                                                font.family: Theme.fontFamily; font.pixelSize: 11; font.bold: true
-                                            }
-
-                                            MouseArea {
-                                                id: rateMouse
-                                                anchors.fill: parent; hoverEnabled: true
-                                                cursorShape: Qt.PointingHandCursor
-                                                onClicked: page.setRefreshRate(card.modelData, rateButton.modelData)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                    Item {
+                        width: parent.width; height: 20
+                        Row {
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 12
+                            Text { text: mon.modelData.name; color: mon.off ? Theme.textFaint : Theme.text; font.family: page.mono; font.pixelSize: 13; font.bold: true }
+                            Text { visible: !mon.off; text: page.monLabel(mon.modelData); color: Theme.textFaint; font.family: page.mono; font.pixelSize: 11; anchors.baseline: parent.children[0].baseline }
+                            Text { visible: mon.off; text: "disabled"; color: Theme.textFaint; font.family: page.mono; font.pixelSize: 11; anchors.baseline: parent.children[0].baseline }
+                            Text { visible: mon.main && page.activeMonitors.length > 1; text: "main"; color: Theme.accent; font.family: page.mono; font.pixelSize: 11; anchors.baseline: parent.children[0].baseline }
+                        }
+                        Row {
+                            anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                            spacing: 16
+                            Act { visible: !mon.off && !mon.main && page.activeMonitors.length > 1; text: "set main"; onClicked: page.setMainMonitor(mon.modelData) }
+                            Act { visible: mon.off || page.activeMonitors.length > 1; text: mon.off ? "enable" : "disable"; onClicked: page.setMonitorEnabled(mon.modelData, mon.off) }
                         }
                     }
+
+                    Choices {
+                        visible: !mon.off
+                        label: "resolution"
+                        options: page.resolutionList(mon.modelData).map(r => ({ text: r.replace("x", "×"), key: r, current: r === mon.modelData.width + "x" + mon.modelData.height }))
+                        onChosen: key => { const m = page.bestMode(mon.modelData, key); if (m) page.setResolution(mon.modelData, m) }
+                    }
+                    Choices {
+                        visible: !mon.off
+                        label: "refresh"
+                        options: page.refreshRates(mon.modelData).map(r => ({ text: (Math.abs(r - Math.round(r)) < 0.05 ? Math.round(r) : r.toFixed(2)) + " Hz", key: r, current: Math.abs(r - mon.modelData.refreshRate) < 0.05 }))
+                        onChosen: key => page.setRefreshRate(mon.modelData, key)
+                    }
+                    Choices {
+                        visible: !mon.off
+                        label: "scale"
+                        options: page.scaleOptions(mon.modelData).map(s => ({ text: s.toFixed(2), key: s, current: Math.abs(s - mon.modelData.scale) < 0.004 }))
+                        onChosen: key => page.setScale(mon.modelData, key, true)
+                    }
                 }
             }
 
-            Rectangle {
-                width: parent.width; height: 34; radius: Theme.radius
-                color: resetMouse.containsMouse ? Theme.alpha(Theme.accent, 0.08) : "#00000000"
-                border.width: 1
-                border.color: resetMouse.containsMouse ? Theme.accent : Theme.border
-
-                Text {
-                    anchors.centerIn: parent; text: "Reset to config"; color: Theme.text
-                    font.family: Theme.fontFamily; font.pixelSize: 12; font.bold: true
-                }
-
-                MouseArea {
-                    id: resetMouse
-                    anchors.fill: parent; hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: page.resetToConfig()
-                }
+            Rectangle { width: parent.width; height: 1; color: Theme.border; opacity: 0.6 }
+            Row {
+                spacing: 22
+                Act { text: "reset to config"; onClicked: page.resetToConfig() }
+                Act { text: "edit monitors.lua"; onClicked: if (!pEditConfig.running) pEditConfig.running = true }
             }
         }
     }

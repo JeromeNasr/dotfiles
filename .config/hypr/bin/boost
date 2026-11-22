@@ -1,0 +1,35 @@
+#!/bin/sh
+# boost [off|1|2|3|next|toggle|restore|status|<number 1.0-2.2>]
+# Software brightness boost beyond the backlight maximum (Hyprland screen shader).
+STATE="$HOME/.config/quickshell/state/boost"
+OUT="$HOME/.config/quickshell/state/boost.frag"
+cur=$(cat "$STATE" 2>/dev/null || echo 1.0)
+case "$1" in
+  off|0) v=1.0;; 1) v=1.3;; 2) v=1.6;; 3) v=2.0;;
+  next|"") case "$cur" in 1.0) v=1.3;; 1.3) v=1.6;; 1.6) v=2.0;; *) v=1.0;; esac;;
+  status) echo "$cur"; exit 0;;
+  toggle) if [ "$cur" = 1.0 ]; then v=$(cat "$STATE.last" 2>/dev/null || echo 1.6); else echo "$cur" > "$STATE.last"; v=1.0; fi;;
+  restore) v=$cur;;
+  *) v=$1;;
+esac
+mkdir -p "${STATE%/*}"; echo "$v" > "$STATE"; [ "$v" != 1.0 ] && echo "$v" > "$STATE.last"
+cat > "$OUT" <<SHADER
+#version 300 es
+precision highp float;
+in vec2 v_texcoord;
+uniform sampler2D tex;
+out vec4 fragColor;
+// BOOST is rewritten by the boost script. 1.0 = off.
+const float BOOST = $v;
+void main() {
+    vec4 c = texture(tex, v_texcoord);
+    // gamma lift: brightens shadows/midtones, keeps white at white (no clipping)
+    vec3 g = pow(c.rgb, vec3(1.0 / BOOST));
+    // small extra gain on top, mostly affects mid-bright areas
+    g = min(g * (1.0 + (BOOST - 1.0) * 0.25), 1.0);
+    fragColor = vec4(g, c.a);
+}
+SHADER
+if [ "$v" = 1.0 ]; then p=""; else p="$OUT"; fi
+hyprctl eval "hl.config({ decoration = { screen_shader = '$p' } })" >/dev/null
+echo "boost $v"

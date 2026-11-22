@@ -1,5 +1,5 @@
 pragma ComponentBehavior: Bound
-// Touch keyboard.  qs ipc call osk toggle|open|hide     (also: edge-swipe up from the bottom)
+// Touch keyboard.  qs ipc call keyboard toggle|open|hide     (also: edge-swipe up from the bottom, Super+K)
 // Never takes keyboard focus, so the app you are typing into keeps it. Keys are sent with ydotool.
 // Shift: tap = next key, double-tap = lock.  Ctrl/Alt/Super: tap = next key.  Hold ⌫ and arrows to repeat.
 import QtQuick
@@ -76,7 +76,7 @@ PanelWindow {
     }
 
     IpcHandler {
-        target: "osk"
+        target: "keyboard"
         // In touch mode squeekboard owns the keyboard (it also auto-shows on text fields);
         // outside touch mode this themed keyboard is used for manual toggling.
         function toggle(): void { if (Touch.mode) root.sq("toggle"); else root.toggle() }

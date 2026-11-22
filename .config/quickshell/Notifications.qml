@@ -1,338 +1,713 @@
 import Quickshell
-import Quickshell.Wayland
 import Quickshell.Io
+import Quickshell.Wayland
+import Quickshell.Services.Notifications
+import Quickshell.Services.UPower
 import QtQuick
 
-// Notification popup SETTINGS only.
-//
-// This file no longer shows any popup and no longer runs a NotificationServer.
-// Your original popup (the one with the copy icon) is the only popup; it reads
-// the values saved here from
-//     ~/.config/quickshell/state/notifications-state.json
-//
-//   - qs ipc call notifsettings settings   open / close this window
-//   - right-click the original popup        calls the same IPC command
-//
-// Uses the reusable components from CustomizationSettings.qml (same directory).
-Scope {
+PanelWindow {
     id: root
 
-    // ---- host interface required by CustomizationSettings ------------------
-    readonly property real menuUi: 1.0
-    readonly property color cAccent: Theme.accent
+    property int topGap: 50
+    property int sideGap: 16
+    property int edgeGap: 0
+    property int baseWidth: 300
+    property int maxHistory: 100
 
-    readonly property QtObject th: QtObject {
-        readonly property real radius: 10
-        readonly property string fontFamily: "JetBrains Mono"
-        readonly property int animFast: 120
-        readonly property int animMed: 220
-        readonly property int textSizeGroup: 12
-        readonly property int textSizeBody: 11
-        readonly property int textSizeSmall: 10
+    property bool dnd: false
+    property bool panelOpen: false
+    property bool stateReady: false
+    property bool historyReady: false
+    property bool dragging: false
+    property real offsetX: 0
+    property real offsetY: 0
+    property int menuSize: 100
+    readonly property real ui: menuSize / 100
+    readonly property int cardWidth: Math.round(baseWidth * ui)
+    readonly property bool movedFromDefault: offsetX !== 0 || offsetY !== 0
+
+    anchors { top: true; bottom: true; right: true; left: true }
+    implicitWidth: cardWidth + sideGap + 24
+    color: "transparent"
+    exclusionMode: ExclusionMode.Ignore
+    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.namespace: "notifications"
+    WlrLayershell.keyboardFocus: panelOpen ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
+
+    mask: Region { item: root.panelOpen ? backdrop : stack }
+
+    // Only keep the surface mapped while a popup or the panel is on screen (an idle full-screen layer costs the compositor every frame).
+    readonly property bool wanted: panelOpen || server.trackedNotifications.values.length > 0
+    property bool mapped: false
+    onWantedChanged: { if (wanted) { unmapTimer.stop(); mapped = true } else unmapTimer.restart() }
+    Timer { id: unmapTimer; interval: 800; onTriggered: root.mapped = false }
+    visible: mapped
+
+    onPanelOpenChanged: {
+        if (panelOpen) root.setPosition(root.offsetX, root.offsetY);
+        else dragging = false;
     }
 
-    readonly property var numSpec: ({
-        popupWidth:  { min: 240,  max: 600,   def: 310,  step: 10,  unit: " px" },
-        popupHeight: { min: 56,   max: 240,   def: 56,   step: 2,   unit: " px" },
-        uiScale:     { min: 70,   max: 160,   def: 90,   step: 5,   unit: " %" },
-        textSize:    { min: 9,    max: 28,    def: 12,   step: 1,   unit: " px" },
-        bgOpacity:   { min: 0,    max: 100,   def: 50,   step: 5,   unit: " %" },
-        radius:      { min: 0,    max: 60,    def: 12,   step: 1,   unit: " px" },
-        showMs:      { min: 1000, max: 15000, def: 5000, step: 500, unit: " ms" },
-        animMs:      { min: 0,    max: 500,   def: 150,  step: 25,  unit: " ms" }
-    })
-    readonly property var numKeys: Object.keys(numSpec)
-
-    readonly property var boolDefaults: ({
-        showIcon: true,
-        showBody: true,
-        showBorder: true,
-        hoverPause: true
-    })
-    readonly property var boolKeys: Object.keys(boolDefaults)
-
-    // ---- settings values (saved to the state file) -------------------------
-    property int popupWidth: numSpec.popupWidth.def
-    property int popupHeight: numSpec.popupHeight.def
-    property int uiScale: numSpec.uiScale.def
-    property int textSize: numSpec.textSize.def
-    property int bgOpacity: numSpec.bgOpacity.def
-    property int radius: numSpec.radius.def
-    property int showMs: numSpec.showMs.def
-    property int animMs: numSpec.animMs.def
-
-    property bool showIcon: boolDefaults.showIcon
-    property bool showBody: boolDefaults.showBody
-    property bool showBorder: boolDefaults.showBorder
-    property bool hoverPause: boolDefaults.hoverPause
-
-    property bool settingsOpen: false
-
-    // the settings window registers its Flickable here (for ensureVisible)
-    property Item flickItem: null
-
-    readonly property bool modified:
-        numKeys.some(k => root[k] !== numSpec[k].def)
-        || boolKeys.some(k => root[k] !== boolDefaults[k])
-
-    readonly property string statePath:
-        Quickshell.env("HOME") + "/.config/quickshell/state/notifications-state.json"
-
-    // ---- functions used by CustomizationSettings ---------------------------
-    function cellW(p) { return p ? p.width : 0 }
-
-    function focusStep(item, forward) {
-        var n = item.nextItemInFocusChain(forward)
-        if (n) n.forceActiveFocus()
+    component Lbl: Text { font.family: Theme.fontFamily
+        property real ui: 1
+        property real sz: 10
+        font.pixelSize: Math.round(sz * ui)
+        color: Theme.text
+        elide: Text.ElideRight
     }
 
-    function ensureVisible(item, margin) {
-        var f = root.flickItem
-        if (!f || !item) return
-        var y = item.mapToItem(f.contentItem, 0, 0).y
-        var h = item.height
-        if (y - margin < f.contentY)
-            f.contentY = Math.max(0, y - margin)
-        else if (y + h + margin > f.contentY + f.height)
-            f.contentY = Math.max(0, Math.min(f.contentHeight - f.height,
-                                              y + h + margin - f.height))
-    }
-
-    function fmtValue(key, v) {
-        var s = numSpec[key]
-        return v + (s ? s.unit : "")
-    }
-
-    function setNumber(key, v) {
-        var s = numSpec[key]
-        root[key] = Math.max(s.min, Math.min(s.max, Math.round(v)))
-        saveState()                       // debounced: popup updates while dragging
-    }
-
-    function toggleSetting(key) {
-        root[key] = !root[key]
-        saveState()
-    }
-
-    function resetAll() {
-        numKeys.forEach(k => { root[k] = numSpec[k].def })
-        boolKeys.forEach(k => { root[k] = boolDefaults[k] })
-        saveState()
-    }
-
-    function saveState() { saveTimer.restart() }
-    function openSettings() {
-        settingsOpen = true
-        uiFlag.setText('{"open":true}')
-        sendTest()          // shows a popup to adjust; remove this line if you don't want it
-    }
-    function closeSettings() {
-        settingsOpen = false
-        uiFlag.setText('{"open":false}')
-        saveState()
-    }
-    function toggleSettings() { settingsOpen ? closeSettings() : openSettings() }
-
-    function sendTest() {
-        Quickshell.execDetached(["notify-send", "Test notification", "Body message"])
-    }
-
-    // ---- persistence ---------------------------------------------------------
-    Timer {
-        id: saveTimer
-        interval: 120
-        onTriggered: {
-            var s = {}
-            root.numKeys.concat(root.boolKeys).forEach(k => { s[k] = root[k] })
-            stateFile.setText(JSON.stringify(s))
+    component Thumb: Rectangle {
+        property real ui: 1
+        property real size: 40
+        property string src: ""
+        width: Math.round(size * ui)
+        height: width
+        radius: Math.round(8 * ui)
+        clip: true
+        Image {
+            id: im
+            anchors.fill: parent
+            fillMode: Image.PreserveAspectCrop
+            asynchronous: true
+            source: parent.src
         }
+        Text {
+            anchors.centerIn: parent
+            visible: im.status !== Image.Ready
+            text: "󰂚"
+            font.family: Theme.iconFont
+            font.pixelSize: Math.round(parent.size * 0.45 * parent.ui)
+            color: Theme.text
+        }
+    }
+
+    component IconBtn: Rectangle {
+        id: b
+        property real ui: 1
+        property string icon: ""
+        property string tip: ""
+        property color tint: Theme.text
+        property real rest: 0.08
+        property real hot: 0.2
+        property bool tipReady: false
+        signal clicked()
+        width: Math.round(24 * ui)
+        height: width
+        radius: Math.round(8 * ui)
+        color: Theme.alpha(tint, area.containsMouse ? hot : rest)
+
+        Text {
+            anchors.centerIn: parent
+            text: b.icon
+            font.family: Theme.iconFont
+            font.pixelSize: Math.round(13 * b.ui)
+            color: b.tint
+        }
+        MouseArea {
+            id: area
+            anchors.fill: parent
+            hoverEnabled: true
+            onClicked: b.clicked()
+            onContainsMouseChanged: {
+                b.tipReady = false;
+                if (containsMouse) tipTimer.restart();
+                else tipTimer.stop();
+            }
+        }
+        Timer { id: tipTimer; interval: 400; onTriggered: b.tipReady = true }
+
+        Rectangle {
+            visible: b.tipReady && b.tip !== ""
+            anchors.top: parent.bottom
+            anchors.topMargin: 6
+            anchors.right: parent.right
+            width: tipText.implicitWidth + Math.round(14 * b.ui)
+            height: tipText.implicitHeight + Math.round(8 * b.ui)
+            radius: Math.round(7 * b.ui)
+            color: Theme.bg
+            border.width: 1
+            border.color: Theme.alpha(Theme.text, 0.15)
+            Lbl { id: tipText; anchors.centerIn: parent; ui: b.ui; sz: 9; text: b.tip }
+        }
+    }
+
+    component SizeBtn: Text { font.family: Theme.fontFamily
+        signal clicked()
+        height: 16
+        verticalAlignment: Text.AlignVCenter
+        horizontalAlignment: Text.AlignHCenter
+        color: Theme.text
+        MouseArea { anchors.fill: parent; onClicked: parent.clicked() }
+    }
+
+    function px(n) { return Math.round(n * ui); }
+    function imgSrc(p) { return !p ? "" : (p.startsWith("/") ? "file://" + p : p); }
+    function thumbSrc(image, icon) {
+        if (image && image !== "") return imgSrc(image);
+        if (icon && icon !== "") return Quickshell.iconPath(icon, true);
+        return "";
+    }
+    function fmtTime(ms) {
+        const d = new Date(ms);
+        return d.toDateString() === new Date().toDateString()
+            ? Qt.formatDateTime(d, "HH:mm")
+            : Qt.formatDateTime(d, "dd MMM HH:mm");
+    }
+    function copyText(s, b) { Quickshell.execDetached(["wl-copy", b !== "" ? s + "\n" + b : s]); }
+    function removeHistory(i) { history.remove(i); saveTimer.restart(); }
+    function clearHistory() { history.clear(); saveTimer.restart(); }
+    function setSize(v) {
+        menuSize = Math.max(60, Math.min(200, v));
+        if (panelOpen) setPosition(offsetX, offsetY);
+        stateTimer.restart();
+    }
+    function toggleDnd() { dnd = !dnd; stateTimer.restart(); }
+
+    function setPosition(x, y) {
+        if (root.width <= 0 || root.height <= 0) {
+            root.offsetX = x;
+            root.offsetY = y;
+            return;
+        }
+        const maxX = root.sideGap - root.edgeGap;
+        const minX = Math.min(maxX, root.cardWidth + root.sideGap + root.edgeGap - root.width);
+        const minY = root.edgeGap + root.px(14) - root.topGap;
+        const maxY = Math.max(minY, root.height - panel.height - root.edgeGap - root.topGap);
+        root.offsetX = Math.max(minX, Math.min(maxX, x));
+        root.offsetY = Math.max(minY, Math.min(maxY, y));
+    }
+
+    function resetPosition() {
+        offsetX = 0;
+        offsetY = 0;
+        stateTimer.restart();
+    }
+
+    IpcHandler {
+        target: "notifications"
+        function toggle(): void { root.panelOpen = !root.panelOpen; }
+        function open(): void { root.panelOpen = true; }
+        function close(): void { root.panelOpen = false; }
+        function clear(): void { root.clearHistory(); }
+        function dnd(): void { root.toggleDnd(); }
     }
 
     FileView {
         id: stateFile
-        path: root.statePath
+        path: Quickshell.env("HOME") + "/.config/quickshell/state/notifications-state.json"
         printErrors: false
         onLoaded: {
             try {
-                var s = JSON.parse(stateFile.text())
-                root.numKeys.forEach(k => { if (typeof s[k] === "number") root.setNumber(k, s[k]) })
-                root.boolKeys.forEach(k => { if (typeof s[k] === "boolean") root[k] = s[k] })
-            } catch (e) {
-                console.warn("notification settings: could not read saved state:", e)
+                const s = JSON.parse(text());
+                if (typeof s.dnd === "boolean") root.dnd = s.dnd;
+                if (typeof s.menuSize === "number") root.menuSize = Math.max(60, Math.min(200, Math.round(s.menuSize)));
+                if (typeof s.offsetX === "number") root.offsetX = s.offsetX;
+                if (typeof s.offsetY === "number") root.offsetY = s.offsetY;
+            } catch (e) { console.warn("Notifications: bad state file: " + e); }
+            root.stateReady = true;
+        }
+        onLoadFailed: root.stateReady = true
+    }
+    Timer {
+        id: stateTimer
+        interval: 300
+        onTriggered: if (root.stateReady) stateFile.setText(JSON.stringify({
+            dnd: root.dnd,
+            menuSize: root.menuSize,
+            offsetX: root.offsetX,
+            offsetY: root.offsetY
+        }))
+    }
+
+    ListModel { id: history }
+
+    FileView {
+        id: store
+        path: Quickshell.env("HOME") + "/.cache/43pr/notifications.json"
+        printErrors: false
+        onLoaded: {
+            try {
+                const arr = JSON.parse(text());
+                for (let i = 0; i < arr.length; i++) history.append(arr[i]);
+            } catch (e) { console.warn("Notifications: bad history file: " + e); }
+            root.historyReady = true;
+        }
+        onLoadFailed: root.historyReady = true
+    }
+    Timer {
+        id: saveTimer
+        interval: 400
+        onTriggered: {
+            if (!root.historyReady) return;
+            const out = [];
+            for (let i = 0; i < history.count; i++) {
+                const e = history.get(i);
+                out.push({ summary: e.summary, body: e.body, appName: e.appName, appIcon: e.appIcon, image: e.image, time: e.time });
+            }
+            store.setText(JSON.stringify(out));
+        }
+    }
+
+    NotificationServer {
+        id: server
+        keepOnReload: true
+        bodySupported: true
+        actionsSupported: true
+        imageSupported: true
+
+        onNotification: n => {
+            n.tracked = !(root.dnd && n.urgency !== NotificationUrgency.Critical);
+            if (n.transient) return;
+
+            const img = (n.image && !String(n.image).startsWith("image://")) ? String(n.image) : "";
+            history.insert(0, {
+                summary: n.summary || "",
+                body: n.body || "",
+                appName: n.appName || "",
+                appIcon: n.appIcon || "",
+                image: img,
+                time: Date.now()
+            });
+            if (history.count > root.maxHistory) history.remove(root.maxHistory, history.count - root.maxHistory);
+            saveTimer.restart();
+        }
+    }
+
+    property real lastBat: -1
+    property bool bat20: false
+    property bool bat15: false
+
+    function notifyBat(urgency, icon, title, pct) {
+        Quickshell.execDetached(["notify-send", "-a", "Battery", "-u", urgency, "-i", icon, title, "Battery is at " + Math.round(pct) + "%"]);
+    }
+
+    function checkBattery() {
+        if (!UPower.displayDevice.ready) return;
+        const p = UPower.displayDevice.percentage;
+
+        if (!UPower.onBattery) {
+            bat20 = false;
+            bat15 = false;
+            lastBat = p;
+            return;
+        }
+        if (lastBat < 0) { lastBat = p; return; }
+
+        if (p > 20) bat20 = false;
+        if (p > 15) bat15 = false;
+
+        if (!bat20 && lastBat > 20 && p <= 20) { bat20 = true; notifyBat("normal", "battery-caution", "Battery Low", p); }
+        if (!bat15 && lastBat > 15 && p <= 15) { bat15 = true; notifyBat("critical", "battery-empty", "Battery Critical", p); }
+        lastBat = p;
+    }
+
+    Component.onCompleted: {
+        Quickshell.execDetached(["mkdir", "-p", Quickshell.env("HOME") + "/.config/quickshell/state"]);
+        checkBattery();
+    }
+    Connections {
+        target: UPower.displayDevice
+        function onPercentageChanged() { root.checkBattery(); }
+        function onStateChanged() { root.checkBattery(); }
+    }
+    Connections {
+        target: UPower
+        function onOnBatteryChanged() { root.checkBattery(); }
+    }
+    Timer { interval: 30000; running: true; repeat: true; onTriggered: root.checkBattery() }
+
+    Item { anchors.fill: parent; focus: root.panelOpen; Keys.onEscapePressed: root.panelOpen = false }
+
+    Item {
+        id: backdrop
+        anchors.fill: parent
+        visible: root.panelOpen
+        MouseArea {
+            anchors.fill: parent
+            enabled: root.panelOpen
+            onClicked: root.panelOpen = false
+        }
+    }
+
+    Column {
+        id: stack
+        visible: !root.panelOpen
+        anchors {
+            top: parent.top
+            topMargin: root.topGap + root.offsetY
+            right: parent.right
+            rightMargin: root.sideGap - root.offsetX
+        }
+        spacing: root.px(8)
+
+        Repeater {
+            model: server.trackedNotifications
+
+            delegate: Item {
+                id: wrapper
+                required property var modelData
+                property bool shown: false
+                property bool leaving: false
+                property bool wasExpired: false
+                readonly property bool critical: modelData.urgency === NotificationUrgency.Critical
+
+                width: root.cardWidth
+                height: card.height
+
+                function close(expired) {
+                    if (leaving) return;
+                    wasExpired = expired;
+                    leaving = true;
+                    shown = false;
+                    gone.start();
+                }
+                Component.onCompleted: shown = true
+
+                Timer {
+                    id: gone
+                    interval: 220
+                    onTriggered: wrapper.wasExpired ? wrapper.modelData.expire() : wrapper.modelData.dismiss()
+                }
+
+                Timer {
+                    interval: wrapper.modelData.expireTimeout > 0 ? wrapper.modelData.expireTimeout * 1000 : 6000
+                    running: !wrapper.critical && !hover.containsMouse && !wrapper.leaving
+                    onTriggered: wrapper.close(true)
+                }
+
+                Rectangle {
+                    id: card
+                    width: parent.width
+                    height: Math.max(root.px(64), content.implicitHeight + root.px(20))
+                    radius: root.px(16)
+                    color: Theme.bg
+                    border.width: wrapper.critical ? 1 : 0
+                    border.color: Theme.danger
+                    opacity: wrapper.shown ? 1 : 0
+
+                    Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.InOutQuad } }
+
+                    MouseArea {
+                        id: hover
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        acceptedButtons: Qt.LeftButton | Qt.RightButton
+                        onClicked: mouse => {
+                            if (mouse.button === Qt.RightButton) root.copyText(wrapper.modelData.summary, wrapper.modelData.body);
+                            wrapper.close(false);
+                        }
+                    }
+
+                    Row {
+                        id: content
+                        anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; margins: root.px(10) }
+                        spacing: root.px(10)
+
+                        Thumb {
+                            id: thumb
+                            ui: root.ui
+                            color: Theme.bg
+                            src: root.thumbSrc(wrapper.modelData.image, wrapper.modelData.appIcon)
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+
+                        Column {
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: root.px(3)
+                            width: parent.width - thumb.width - parent.spacing
+
+                            Lbl { ui: root.ui; sz: 12; font.bold: true; width: parent.width; text: wrapper.modelData.summary }
+                            Lbl {
+                                ui: root.ui
+                                width: parent.width
+                                visible: text !== ""
+                                text: wrapper.modelData.body
+                                color: Theme.textDim
+                                textFormat: Text.PlainText
+                                wrapMode: Text.WordWrap
+                                maximumLineCount: 3
+                            }
+                            Lbl { ui: root.ui; sz: 9; width: parent.width; text: wrapper.modelData.appName; color: Theme.textDim; opacity: 0.7 }
+
+                            Row {
+                                visible: wrapper.modelData.actions.length > 0
+                                spacing: root.px(6)
+
+                                Repeater {
+                                    model: wrapper.modelData.actions
+                                    delegate: Rectangle {
+                                        required property var modelData
+                                        height: root.px(20)
+                                        width: label.implicitWidth + root.px(14)
+                                        radius: root.px(7)
+                                        color: Theme.alpha(Theme.text, btn.containsMouse ? 0.22 : 0.1)
+
+                                        Lbl { id: label; anchors.centerIn: parent; ui: root.ui; sz: 9; text: parent.modelData.text }
+                                        MouseArea {
+                                            id: btn
+                                            anchors.fill: parent
+                                            hoverEnabled: true
+                                            onClicked: { parent.modelData.invoke(); wrapper.close(false); }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
-    // tells SidePanel the settings window is open, so popups stay on screen
-    FileView {
-        id: uiFlag
-        path: Quickshell.env("HOME") + "/.config/quickshell/state/notifications-ui.json"
-        printErrors: false
-    }
-    // clear a stale flag after a crash or reload
-    Component.onCompleted: uiFlag.setText('{"open":false}')
-    IpcHandler {
-        target: "notifsettings"
-        function settings(): void { root.toggleSettings() }
-    }
 
-    // ---- settings window: only exists while open -----------------------------
-    LazyLoader {
-        active: root.settingsOpen
+    Item {
+        id: dragHandle
+        visible: panel.visible
+        opacity: panel.opacity
+        height: root.px(14)
+        anchors { bottom: panel.top; left: panel.left; right: panel.right }
 
-        PanelWindow {
-            id: settingsWin
-            screen: Quickshell.screens[0]
+        Rectangle {
+            anchors.centerIn: parent
+            width: root.px(36)
+            height: root.px(4)
+            radius: height / 2
+            color: Theme.text
+            opacity: (dragArea.containsMouse || root.dragging) ? 0.35 : 0.1
+            Behavior on opacity { NumberAnimation { duration: 150 } }
+        }
 
-            color: "transparent"
-            implicitWidth: Math.round(380 * root.menuUi)
-            implicitHeight: Math.min(Math.round(560 * root.menuUi),
-                                     (screen?.height ?? 800) * 0.85)
-            exclusionMode: ExclusionMode.Ignore
+        MouseArea {
+            id: dragArea
+            anchors.fill: parent
+            enabled: root.panelOpen
+            hoverEnabled: true
+            acceptedButtons: Qt.LeftButton
+            cursorShape: root.dragging ? Qt.ClosedHandCursor : Qt.OpenHandCursor
 
-            WlrLayershell.layer: WlrLayer.Overlay
-            WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
+            property real pressX: 0
+            property real pressY: 0
+            property real startX: 0
+            property real startY: 0
 
-            Rectangle {
-                anchors.fill: parent
-                radius: 10
-                color: Theme.bg
-                border.width: 1
-                border.color: Theme.alpha(Theme.text, 0.12)
+            onPressed: function (mouse) {
+                const p = dragArea.mapToItem(backdrop, mouse.x, mouse.y);
+                pressX = p.x;
+                pressY = p.y;
+                startX = root.offsetX;
+                startY = root.offsetY;
+                root.dragging = true;
             }
 
-            FocusScope {
-                anchors.fill: parent
-                focus: true
-                Keys.onEscapePressed: root.closeSettings()
+            onPositionChanged: function (mouse) {
+                if (!root.dragging) return;
+                const p = dragArea.mapToItem(backdrop, mouse.x, mouse.y);
+                root.setPosition(startX + (p.x - pressX), startY + (p.y - pressY));
+            }
 
-                // ---- header ----
-                Item {
-                    id: head
-                    anchors.top: parent.top
-                    width: parent.width
-                    height: 54
+            onReleased: {
+                if (!root.dragging) return;
+                root.dragging = false;
+                stateTimer.restart();
+            }
 
-                    Text {
-                        x: 20; y: 10
-                        text: "Notification popup settings"
-                        font.family: root.th.fontFamily
-                        font.pixelSize: 14
-                        font.bold: true
-                        color: Theme.text
-                    }
-                    Text {
-                        x: 20; y: 31
-                        text: "Changes are applied to the popup live."
-                        font.family: root.th.fontFamily
-                        font.pixelSize: 10
-                        color: Theme.textDim
-                    }
-                    Text {
-                        anchors.right: parent.right
-                        anchors.rightMargin: 16
-                        y: 8
-                        width: 26; height: 26
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        text: "×"
-                        font.family: root.th.fontFamily
-                        font.pixelSize: 22
-                        color: closeArea.containsMouse ? Theme.text : Theme.textDim
-                        MouseArea {
-                            id: closeArea
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            onClicked: root.closeSettings()
-                        }
-                    }
+            onCanceled: {
+                if (!root.dragging) return;
+                root.dragging = false;
+                stateTimer.restart();
+            }
+
+            onDoubleClicked: root.resetPosition()
+        }
+    }
+
+    Rectangle {
+        id: panel
+        width: root.cardWidth
+        height: panelCol.height + root.px(28)
+        radius: root.px(20)
+        color: Theme.bg
+        anchors {
+            top: parent.top
+            topMargin: root.topGap + root.offsetY
+            right: parent.right
+            rightMargin: root.sideGap - root.offsetX
+        }
+        opacity: root.panelOpen ? 1 : 0
+        visible: opacity > 0
+
+        Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.InOutQuad } }
+
+        onHeightChanged: if (root.panelOpen) root.setPosition(root.offsetX, root.offsetY)
+
+        MouseArea { anchors.fill: parent }
+
+        Column {
+            id: panelCol
+            anchors { top: parent.top; left: parent.left; right: parent.right; margins: root.px(14) }
+            spacing: root.px(10)
+
+            Item {
+                width: parent.width
+                height: root.px(24)
+                z: 10
+
+                Lbl {
+                    anchors { left: parent.left; verticalCenter: parent.verticalCenter }
+                    ui: root.ui
+                    sz: 13
+                    font.bold: true
+                    text: "Notifications" + (history.count > 0 ? "  " + history.count : "")
                 }
 
-                // ---- scrolling rows (reusable components) ----
-                Flickable {
-                    id: flick
-                    anchors.top: head.bottom
-                    anchors.bottom: foot.top
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    contentWidth: width
-                    contentHeight: rowsCol.height + 12
-                    clip: true
-                    flickableDirection: Flickable.VerticalFlick
-                    boundsBehavior: Flickable.StopAtBounds
+                Row {
+                    anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                    spacing: root.px(4)
 
-                    Component.onCompleted: root.flickItem = flick
-                    Component.onDestruction: if (root.flickItem === flick) root.flickItem = null
+                    IconBtn {
+                        ui: root.ui
+                        icon: root.dnd ? "󰂛" : "󰂚"
+                        tip: "Do Not Disturb: " + (root.dnd ? "ON" : "OFF")
+                        rest: root.dnd ? 0.3 : 0.08
+                        onClicked: root.toggleDnd()
+                    }
+                    IconBtn {
+                        ui: root.ui
+                        icon: "󰆴"
+                        tip: "Clear all"
+                        tint: Theme.danger
+                        rest: 0.1
+                        hot: 0.25
+                        visible: history.count > 0
+                        onClicked: root.clearHistory()
+                    }
+                    IconBtn { ui: root.ui; icon: "󰅖"; tip: "Close"; onClicked: root.panelOpen = false }
+                }
+            }
+
+            Lbl {
+                visible: history.count === 0
+                ui: root.ui
+                sz: 11
+                width: parent.width
+                height: root.px(40)
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+                text: "No notifications"
+                color: Theme.textDim
+            }
+
+            ListView {
+                id: list
+                visible: history.count > 0
+                width: parent.width
+                height: Math.min(contentHeight, root.height - root.topGap - root.px(120))
+                clip: true
+                spacing: root.px(8)
+                model: history
+                boundsBehavior: Flickable.StopAtBounds
+
+                delegate: Rectangle {
+                    id: entry
+                    required property int index
+                    required property string summary
+                    required property string body
+                    required property string appName
+                    required property string appIcon
+                    required property string image
+                    required property real time
+
+                    property bool copied: false
+
+                    width: list.width
+                    height: Math.max(root.px(56), textCol.implicitHeight + root.px(20))
+                    radius: root.px(12)
+                    color: Theme.alpha(Theme.text, entry.copied ? 0.2 : 0.06)
+
+                    Timer { id: copiedTimer; interval: 600; onTriggered: entry.copied = false }
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: {
+                            root.copyText(entry.summary, entry.body);
+                            entry.copied = true;
+                            copiedTimer.restart();
+                        }
+                    }
+
+                    Thumb {
+                        id: eThumb
+                        ui: root.ui
+                        size: 32
+                        color: Theme.alpha(Theme.text, 0.1)
+                        src: root.thumbSrc(entry.image, entry.appIcon)
+                        anchors { left: parent.left; leftMargin: root.px(10); verticalCenter: parent.verticalCenter }
+                    }
 
                     Column {
-                        id: rowsCol
-                        x: 20
-                        width: flick.width - 40
+                        id: textCol
+                        anchors { left: eThumb.right; leftMargin: root.px(10); right: delBtn.left; rightMargin: root.px(8); verticalCenter: parent.verticalCenter }
+                        spacing: root.px(2)
 
-                        // ---- Size ----
-                        CustomizationSettings.SectionHeader { host: root; text: "Size" }
-                        CustomizationSettings.SliderRow { host: root; key: "popupWidth";  label: "Width" }
-                        CustomizationSettings.SliderRow { host: root; key: "popupHeight"; label: "Height" }
-                        CustomizationSettings.SliderRow { host: root; key: "uiScale";     label: "Scale" }
-                        CustomizationSettings.SliderRow { host: root; key: "radius";      label: "Corner radius" }
-
-                        // ---- Text ----
-                        CustomizationSettings.SectionHeader { host: root; text: "Text" }
-                        CustomizationSettings.SliderRow { host: root; key: "textSize"; label: "Text size" }
-                        CustomizationSettings.ToggleRow { host: root; key: "showBody"; label: "Show message text" }
-                        CustomizationSettings.ToggleRow { host: root; key: "showIcon"; label: "Show icon / image" }
-
-                        // ---- Appearance ----
-                        CustomizationSettings.SectionHeader { host: root; text: "Appearance" }
-                        CustomizationSettings.SliderRow { host: root; key: "bgOpacity";  label: "Background opacity" }
-                        CustomizationSettings.ToggleRow { host: root; key: "showBorder"; label: "Border" }
-
-                        // ---- Behavior ----
-                        CustomizationSettings.SectionHeader { host: root; text: "Behavior" }
-                        CustomizationSettings.SliderRow { host: root; key: "showMs"; label: "Display time" }
-                        CustomizationSettings.SliderRow { host: root; key: "animMs"; label: "Animation duration" }
-                        CustomizationSettings.ToggleRow { host: root; key: "hoverPause"; label: "Stay open while hovered" }
-                    }
-                }
-
-                // ---- footer ----
-                Item {
-                    id: foot
-                    anchors.bottom: parent.bottom
-                    width: parent.width
-                    height: 56
-
-                    Rectangle { width: parent.width; height: 1; color: Theme.alpha(Theme.text, 0.08) }
-
-                    Row {
-                        anchors.left: parent.left
-                        anchors.leftMargin: 20
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: 8
-
-                        CustomizationSettings.ActionButton {
-                            host: root
-                            label: "Reset all"
-                            enabled: root.modified
-                            onClicked: root.resetAll()
+                        Lbl { ui: root.ui; sz: 11; font.bold: true; width: parent.width; text: entry.summary }
+                        Lbl {
+                            ui: root.ui
+                            width: parent.width
+                            visible: text !== ""
+                            text: entry.body
+                            color: Theme.textDim
+                            textFormat: Text.PlainText
+                            wrapMode: Text.WordWrap
+                            maximumLineCount: 3
                         }
-                        CustomizationSettings.ActionButton {
-                            host: root
-                            label: "Send test"
-                            onClicked: root.sendTest()
+                        Lbl {
+                            ui: root.ui
+                            sz: 9
+                            width: parent.width
+                            color: Theme.textDim
+                            opacity: 0.7
+                            text: (entry.appName !== "" ? entry.appName + " · " : "") + root.fmtTime(entry.time)
                         }
                     }
 
-                    CustomizationSettings.ActionButton {
-                        host: root
-                        anchors.right: parent.right
-                        anchors.rightMargin: 20
-                        anchors.verticalCenter: parent.verticalCenter
-                        label: "Done"
-                        primary: true
-                        onClicked: root.closeSettings()
+                    Item {
+                        id: delBtn
+                        width: root.px(24)
+                        height: width
+                        anchors { right: parent.right; rightMargin: root.px(8); verticalCenter: parent.verticalCenter }
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "󰅖"
+                            font.family: Theme.iconFont
+                            font.pixelSize: root.px(13)
+                            color: delArea.containsMouse ? Theme.danger : Theme.textDim
+                        }
+                        MouseArea { id: delArea; anchors.fill: parent; hoverEnabled: true; onClicked: root.removeHistory(entry.index) }
                     }
                 }
             }
+        }
+    }
+
+    Row {
+        id: sizeRow
+        anchors { top: panel.bottom; topMargin: 6; left: panel.left }
+        spacing: 2
+        width: root.panelOpen ? implicitWidth : 0
+        height: root.panelOpen ? implicitHeight : 0
+        visible: root.panelOpen
+        opacity: sizeHover.hovered ? 0.9 : 0.18
+
+        Behavior on opacity { NumberAnimation { duration: 150 } }
+        HoverHandler { id: sizeHover }
+
+        SizeBtn { text: "−"; width: 16; font.pixelSize: 12; onClicked: root.setSize(root.menuSize - 10) }
+        SizeBtn { text: "+"; width: 16; font.pixelSize: 12; onClicked: root.setSize(root.menuSize + 10) }
+        SizeBtn {
+            text: "↺"
+            width: 16
+            font.pixelSize: 12
+            visible: root.movedFromDefault
+            onClicked: root.resetPosition()
         }
     }
 }

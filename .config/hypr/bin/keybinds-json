@@ -1,0 +1,60 @@
+#!/usr/bin/env python3
+"""Print keybinds.lua as JSON [{keys, desc}] for the Quickshell cheat sheet."""
+import json, os, re, sys
+path = os.path.expanduser("~/.config/hypr/keybinds.lua")
+KEY = {"GRAVE": "`", "grave": "`", "slash": "/", "Space": "Space", "Delete": "Del", "mouse_down": "Scroll ↓", "mouse_up": "Scroll ↑"}
+rows, seen = [], set()
+for line in open(path, encoding="utf-8"):
+    m = re.match(r'\s*hl\.bind\((.*?),\s*(hl\.dsp\.|function)(.*)$', line)
+    if not m:
+        continue
+    keys_expr, _, rest = m.groups()
+    keys = re.sub(r'mainMod\s*\.\.\s*"\s*\+?\s*', 'Super + "', keys_expr)
+    keys = re.sub(r'["\s]*\.\.["\s]*', '', keys).replace('"', '').strip()
+    if keys.startswith("Super +") is False and "mainMod" in keys_expr:
+        keys = "Super + " + keys
+    parts = [p.strip() for p in keys.split("+") if p.strip()]
+    if not parts or "mouse:" in keys or any(p.startswith("i") and "" for p in []):
+        continue
+    parts = [KEY.get(p, p) for p in parts]
+    c = re.search(r'--\s*(.+?)\s*$', rest)
+    if c:
+        desc = c.group(1)
+    else:
+        a = re.search(r'exec_cmd\(\s*"([^"]+)"', rest) or re.search(r'exec_cmd\(\s*(\w+)', rest)
+        desc = a.group(1) if a else ""
+        desc = re.sub(r'^.*qs ipc call (\w+) (\w+).*$', r'\1 \2', desc)[:48]
+        if not desc:
+            d = re.search(r'dsp\.([\w.]+)', rest)
+            desc = d.group(1).replace(".", " ") if d else "custom"
+    k = " + ".join(parts)
+    if k in seen:
+        continue
+    seen.add(k)
+    rows.append({"keys": k, "desc": desc})
+
+ARROW = {"H": "←", "J": "↓", "K": "↑", "L": "→"}
+OVERRIDE = {
+    "Super + T": "Terminal", "Super + E": "File manager", "Super + B": "Browser", "Super + Q": "Close window",
+    "Super + Space": "Float + center window", "Super + R": "Screen recorder", "Super + Z": "Scratchpad terminal",
+    "Super + V": "Clipboard history", "Super + X": "Next keyboard layout", "Del": "Screenshot",
+    "SHIFT + Del": "Screenshot (select area)", "Super + SHIFT + E": "Exit Hyprland",
+    "Super + Scroll ↑": "Zoom in", "Super + Scroll ↓": "Zoom out", "Super + code:82": "Zoom out", "Super + code:86": "Zoom in",
+    "Super + key": "Go to workspace", "Super + SHIFT + key": "Move window to workspace",
+    "XF86Display": "Displays menu", "Super + `": "Power menu", "Super + Tab": "Lock screen",
+}
+out = []
+for r in rows:
+    k, d = r["keys"], r["desc"]
+    m = re.fullmatch(r"Super \+ (SHIFT \+ |CTRL \+ )?([HJKL])", k)
+    if m and d == "custom":
+        mod, key = m.groups()
+        d = {None: "Focus ", "SHIFT + ": "Move window ", "CTRL + ": "Resize "}[mod] + ARROW[key]
+    d = OVERRIDE.get(k, d)
+    if k.startswith("XF86Audio") or k == "XF86Display":
+        continue
+    if k.startswith("Super + code:"):
+        k = k.replace("code:82", "KP −").replace("code:86", "KP +")
+    k = k.replace("+ key", "+ 1 – 0")
+    out.append({"keys": k.replace("SHIFT", "Shift").replace("CTRL", "Ctrl"), "desc": d})
+json.dump(out, sys.stdout, ensure_ascii=False)

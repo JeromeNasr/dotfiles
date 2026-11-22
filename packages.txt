@@ -16,7 +16,6 @@ quickshell
 rofi
 polkit
 qt6-wayland
-qt6-5compat
 
 # --------------------------------------------------
 # Desktop Portals / X11 Compatibility / User Dirs
@@ -33,15 +32,10 @@ xdg-utils
 # --------------------------------------------------
 
 awww
-mpvpaper
 grim
 slurp
-socat
-gpu-screen-recorder
 imagemagick
 matugen
-tesseract
-tesseract-data-eng
 
 # --------------------------------------------------
 # Networking / Bluetooth
@@ -79,7 +73,6 @@ kitty
 zsh
 zsh-autosuggestions
 zsh-syntax-highlighting
-zsh-autocomplete
 starship
 eza
 
@@ -92,9 +85,9 @@ thunar-volman
 thunar-archive-plugin
 gvfs
 tumbler
+ffmpegthumbnailer
 xed
 ncdu
-zenity
 
 # --------------------------------------------------
 # GTK / Theming / Icons / Appearance
@@ -112,12 +105,10 @@ papirus-folders
 nwg-look
 
 # --------------------------------------------------
-# Media / Video Tools
+# Media
 # --------------------------------------------------
 
 mpv
-ffmpeg
-ffmpegthumbnailer
 
 # --------------------------------------------------
 # System Monitoring / Hardware
@@ -128,27 +119,8 @@ nvtop
 dmidecode
 brightnessctl
 gammastep
-
-# --------------------------------------------------
-# Power / Battery
-# --------------------------------------------------
-
-upower                   # bar battery module (Quickshell.Services.UPower)
 power-profiles-daemon
-
-# --------------------------------------------------
-# Bar: CPU / GPU Stats & Temperatures
-# --------------------------------------------------
-# The bar's GPU/temp probe is vendor-agnostic and degrades gracefully:
-#   CPU temp   -> `sensors` (lm_sensors)
-#   AMD GPU    -> sysfs (gpu_busy_percent + hwmon), nothing extra needed
-#   Intel GPU  -> sysfs clock estimate, nothing extra needed
-#   NVIDIA GPU -> nvidia-smi (nvidia-utils)
-# Uncomment ONLY what matches your hardware:
-
-lm_sensors               # `sensors` for CPU temp / GPU temp fallback
-# nvidia-utils           # NVIDIA: provides nvidia-smi (usage + temp)
-# intel-gpu-tools        # Intel: optional, intel_gpu_top for real usage % (needs CAP_PERFMON/root)
+lm_sensors
 
 # --------------------------------------------------
 # Desktop Notifications
@@ -172,14 +144,12 @@ ttf-jetbrains-mono-nerd
 ttf-iosevka-nerd
 ttf-roboto-mono
 otf-font-awesome
-ttf-tabler-icons 
 
 # --------------------------------------------------
 # Scripting / Package / Application Utilities
 # --------------------------------------------------
 
 python
-python-gobject
 jq
 flatpak
 curl
@@ -189,4 +159,7 @@ unzip
 # Hyprland Companion Apps (AUR)
 # --------------------------------------------------
 
-python-gobject
+hyprmod
+squeekboard
+ydotool
+iio-sensor-proxy

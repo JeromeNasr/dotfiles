@@ -1,0 +1,9 @@
+#!/bin/sh
+# Switch power-profiles-daemon profile when the charger is (un)plugged.
+# AC: full speed — battery: power limit 35 (see power-limit).
+ac() { for f in /sys/class/power_supply/A*/online /sys/class/power_supply/ACAD/online; do [ -f "$f" ] && { cat "$f"; return; }; done; echo 1; }
+apply() {
+  # plugging in -> full speed; on battery -> a moderate cap (change it any time in Settings > Power)
+  if [ "$(ac)" = 1 ]; then ~/.local/bin/power-limit 100 >/dev/null; else ~/.local/bin/power-limit 35 >/dev/null; fi
+}
+udevadm monitor --udev --subsystem-match=power_supply 2>/dev/null | while read -r _; do sleep 1; apply; done

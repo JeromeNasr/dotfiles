@@ -150,7 +150,9 @@ fi
 # Packages: split into official-repo vs AUR-only
 # --------------------------------------------------
 
-mapfile -t PACKAGES < <(sed -E 's/[[:space:]]*#.*$//; s/^[[:space:]]+//; s/[[:space:]]+$//; /^$/d' "$PACKAGE_FILE")
+mapfile -t PACKAGES < <(
+    grep -vE '^[[:space:]]*(#|$)' "$PACKAGE_FILE"
+)
 
 OFFICIAL_PACKAGES=()
 AUR_PACKAGES=()
@@ -382,6 +384,16 @@ fi
 # Permissions
 # --------------------------------------------------
 #
+# Helper commands (touch-gestures, rotate-screen, boost, ...) live in
+# .config/hypr/bin and are linked into ~/.local/bin so they are on PATH.
+info "Linking helper commands into ~/.local/bin"
+mkdir -p "$HOME/.local/bin"
+for f in "$SRC"/hypr/bin/*; do
+    [[ -f "$f" ]] || continue
+    chmod +x "$f"
+    ln -sfn "$f" "$HOME/.local/bin/$(basename "$f")"
+done
+
 # Scripts are now symlinks into the repo, so chmod must target the repo's
 # real files — a symlink's own permission bits are irrelevant on Linux,
 # what matters is the target's. `find -type f` on ~/.config would no

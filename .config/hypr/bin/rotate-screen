@@ -1,0 +1,18 @@
+#!/bin/sh
+# rotate-screen [normal|left|right|inverted|next|auto-on|auto-off|status]
+# Hyprland transform: 0 normal, 1 90° (left side down), 2 180°, 3 270°
+MON=eDP-1
+cur=$(hyprctl monitors -j | python3 -c "import json,sys;print([m for m in json.load(sys.stdin) if m['name']=='$MON'][0]['transform'])")
+case "$1" in
+  normal) t=0;; left) t=1;; inverted) t=2;; right) t=3;;
+  next|"") t=$(( (cur+1) % 4 ));;
+  status) echo "$cur"; exit 0;;
+  auto-on)  mkdir -p "$HOME/.config/quickshell/state"; touch "$HOME/.config/quickshell/state/autorotate"; exit 0;;
+  auto-off) rm -f "$HOME/.config/quickshell/state/autorotate"; exit 0;;
+  auto)     f="$HOME/.config/quickshell/state/autorotate"; if [ -f "$f" ]; then rm "$f"; else mkdir -p "${f%/*}"; touch "$f"; fi; exit 0;;
+  *) echo "usage: rotate-screen normal|left|right|inverted|next"; exit 1;;
+esac
+info=$(hyprctl monitors -j | python3 -c "import json,sys;m=[m for m in json.load(sys.stdin) if m['name']=='$MON'][0];print('%dx%d@%.2f %s'%(m['width'],m['height'],m['refreshRate'],m['scale']))")
+# width/height reported are already rotated; use the preferred mode instead of echoing them back
+scale=${info##* }
+hyprctl eval "hl.monitor({ output = '$MON', mode = 'preferred', position = 'auto', scale = $scale, transform = $t })" >/dev/null

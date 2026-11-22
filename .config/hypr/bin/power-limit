@@ -1,0 +1,43 @@
+#!/bin/sh
+# power-limit <0-100> | restore | status
+#   100 = full speed, lower = capped CPU (and turbo off, power-saver profile). 0 = MINIMUM: lowest
+#   frequency the CPU allows, no turbo, power-saver — as little power as possible.
+# Writing the CPU limits needs a one-time setup so they are writable without root (see
+# .config/hypr/tmpfiles/power-limit.conf). Without it only the power profile changes.
+P=/sys/devices/system/cpu/intel_pstate
+STATE="$HOME/.config/quickshell/state/power-limit"
+writable() { [ -w "$P/max_perf_pct" ] && [ -w "$P/no_turbo" ]; }
+
+status() {
+  v=$(cat "$STATE" 2>/dev/null || echo 100)
+  w=0; writable && w=1
+  echo "$v $(cat $P/max_perf_pct) $(cat $P/no_turbo) $w $(powerprofilesctl get 2>/dev/null)"
+}
+
+apply() {
+  v=$1
+  [ "$v" -lt 0 ] && v=0; [ "$v" -gt 100 ] && v=100
+  min=$(cat $P/min_perf_pct)
+  if [ "$v" -eq 0 ]; then pct=$min; turbo=1; prof=power-saver
+  else
+    pct=$(( 15 + v * 85 / 100 )); [ "$pct" -lt "$min" ] && pct=$min
+    [ "$v" -lt 70 ] && turbo=1 || turbo=0
+    if   [ "$v" -le 40 ]; then prof=power-saver
+    elif [ "$v" -le 85 ]; then prof=balanced
+    else prof=performance; fi
+  fi
+  powerprofilesctl set "$prof" 2>/dev/null
+  if writable; then
+    # raise max first when going up, lower it last when going down, so min<=max always holds
+    echo "$pct" > $P/max_perf_pct
+    echo "$turbo" > $P/no_turbo
+  fi
+  mkdir -p "${STATE%/*}"; echo "$v" > "$STATE"
+}
+
+case "$1" in
+  status|"") status;;
+  restore) apply "$(cat "$STATE" 2>/dev/null || echo 100)";;
+  *[!0-9]*) echo "usage: power-limit <0-100>|restore|status"; exit 1;;
+  *) apply "$1"; status;;
+esac

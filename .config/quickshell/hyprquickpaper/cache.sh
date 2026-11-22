@@ -1,86 +1,27 @@
 #!/usr/bin/env bash
-
+# Build/refresh JPEG thumbnails for the wallpaper picker (only missing/outdated ones),
+# and drop thumbnails whose wallpaper was deleted. Thumb name: "<original file name>.jpg".
 CONFIG="$1/config.json"
-
-expand_home() {
-    local path="$1"
-
-    if [[ "$path" == '$HOME' ]]; then
-        printf '%s\n' "$HOME"
-    elif [[ "$path" == '$HOME/'* ]]; then
-        printf '%s/%s\n' "$HOME" "${path#'$HOME/'}"
-    else
-        printf '%s\n' "$path"
-    fi
-}
-
+expand_home() { case "$1" in '$HOME') echo "$HOME";; '$HOME/'*) echo "$HOME/${1#'$HOME/'}";; *) echo "$1";; esac; }
 wallpaper_path=$(expand_home "$(jq -r '.wallpaper_path' "$CONFIG")")
 cache_path=$(expand_home "$(jq -r '.cache_path' "$CONFIG")")
-cache_batch_size=$(jq -r '.cache_batch_size' "$CONFIG")
-
+jobs_max=$(( $(nproc) > 4 ? 4 : $(nproc) ))      # keep the machine responsive
 mkdir -p "$cache_path"
 
-echo "Wallpaper path: $wallpaper_path"
-echo "Cache path: $cache_path"
+shopt -s nullglob nocaseglob
+for img in "$wallpaper_path"/*.{jpg,jpeg,png,webp}; do
+    out="$cache_path/$(basename "$img").jpg"
+    [[ -f "$out" && "$out" -nt "$img" ]] && continue
+    # jpeg:size lets the decoder downscale while reading -> several times faster on big JPEGs.
+    # Write to a temp file and rename, so the picker never reads a half-written thumbnail.
+    ( nice -n 10 magick -define jpeg:size=1600x900 "$img[0]" -auto-orient -thumbnail 800x450^ \
+          -gravity center -extent 800x450 -strip -quality 86 "jpg:$out.part" \
+      && mv -f "$out.part" "$out" ) &
+    while (( $(jobs -rp | wc -l) >= jobs_max )); do wait -n; done
+done
+wait
 
-find "$wallpaper_path" -type f \( \
-    -iname "*.jpg" -o \
-    -iname "*.jpeg" -o \
-    -iname "*.png" -o \
-    -iname "*.webp" -o \
-    -iname "*.gif" -o \
-    -iname "*.mp4" -o \
-    -iname "*.mkv" -o \
-    -iname "*.webm" -o \
-    -iname "*.mov" \
-\) | while read -r img; do
-
-    filename=$(basename "$img")
-    out="$cache_path/$filename"
-
-    case "${filename,,}" in
-        *.mp4|*.mkv|*.webm|*.mov)
-            prev="$out.preview.gif"
-            if [[ ! -f "$prev" ]]; then
-                echo "Generating preview for $filename"
-                # first 3 s, 12 fps, 300px tall; written to .tmp then renamed so a
-                # half-finished file is never picked up by the picker
-                ffmpeg -nostdin -loglevel error -y -t 3 -i "$img" \
-                    -vf "fps=12,scale=-2:300:flags=lanczos,split[a][b];[a]palettegen=max_colors=128[p];[b][p]paletteuse=dither=bayer:bayer_scale=4" \
-                    -loop 0 -f gif "$prev.tmp" && mv "$prev.tmp" "$prev" &
-                if (( cache_batch_size > 0 )); then
-                    while (( $(jobs -rp | wc -l) >= cache_batch_size )); do
-                        wait -n
-                    done
-                fi
-            fi
-            ;;
-    esac
-
-    if [[ -f "$out" ]]; then
-        continue
-    fi
-
-    echo "Generating thumbnail for $filename"
-    case "${filename,,}" in
-        *.gif)
-            # first frame only, kept as a single-frame GIF under the same name
-            convert "${img}[0]" -thumbnail x500 -strip "gif:$out" &
-            ;;
-        *.mp4|*.mkv|*.webm|*.mov)
-            # first frame as a JPEG, kept under the same name (Qt sniffs the real format)
-            # -nostdin is required or ffmpeg swallows the file list from the pipe
-            ffmpeg -nostdin -loglevel error -y -i "$img" -frames:v 1 \
-                -vf "scale=-2:500" -f image2 -c:v mjpeg -q:v 4 "$out" &
-            ;;
-        *)
-            convert "$img" -thumbnail x500 -strip -quality 85 "$out" &
-            ;;
-    esac
-
-    if (( cache_batch_size > 0 )); then
-        while (( $(jobs -rp | wc -l) >= cache_batch_size )); do
-            wait -n
-        done
-    fi
+# prune thumbnails of wallpapers that no longer exist
+for t in "$cache_path"/*.jpg; do
+    [[ -f "$wallpaper_path/$(basename "$t" .jpg)" ]] || rm -f "$t"
 done

@@ -1,0 +1,10 @@
+#!/bin/sh
+# Toggle a screen recording of the focused monitor (wf-recorder) -> ~/Videos
+if pkill -INT -x wf-recorder; then
+    notify-send -i media-record "Recording stopped" "Saved in ~/Videos"
+    exit 0
+fi
+mkdir -p "$HOME/Videos"
+out=$(hyprctl monitors -j | jq -r '.[] | select(.focused) | .name')
+notify-send -i media-record "Recording started" "$out"
+exec wf-recorder -o "$out" -f "$HOME/Videos/$(date +%Y-%m-%d_%H-%M-%S).mp4"

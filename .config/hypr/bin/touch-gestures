@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+"""touch-gestures — touchscreen gestures for the Hyprland + Quickshell rice (pure stdlib, reads evdev directly).
+
+  edge swipe  bottom -> up      show the touch keyboard
+  edge swipe  top    -> down    notifications
+  3 fingers   left / right      previous / next workspace
+  3 fingers   up                quick-actions wheel
+  3 fingers   down              calendar
+  4 fingers   up                workspace overview
+  tablet-mode switch            turns Touch mode (bigger bar, keyboard prompts) on / off
+
+Left/right edge swipes are left to Hyprland (gestures.workspace_swipe_touch).
+Needs read access to /dev/input (you are in the `input` group).  Safe to run once; it exits if the device is missing.
+"""
+import fcntl, os, re, selectors, struct, subprocess, sys, time
+
+EV_SYN, EV_SW, EV_ABS = 0x00, 0x05, 0x03
+ABS_MT_SLOT, ABS_MT_X, ABS_MT_Y, ABS_MT_ID = 0x2F, 0x35, 0x36, 0x39
+EVIOCGABS = lambda a: 0x80184540 + a
+FMT = "llHHi"; SZ = struct.calcsize(FMT)
+
+def sh(*cmd):
+    subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+def qs(*a): sh("qs", "ipc", "call", *a)
+def ws(delta): sh("hyprctl", "dispatch", 'hl.dsp.focus({ workspace = "%s" })' % delta)
+
+def find_devices():
+    touch, tablet = None, None
+    blocks = open("/proc/bus/input/devices").read().split("\n\n")
+    for b in blocks:
+        name = re.search(r'Name="(.*)"', b)
+        h = re.search(r"Handlers=.*?(event\d+)", b)
+        if not name or not h: continue
+        name = name.group(1); ev = h.group(1)
+        abs_ = re.search(r"B: ABS=(\w+)", b)
+        if abs_ and int(abs_.group(1).replace(" ", ""), 16) & (1 << ABS_MT_X) \
+           and not re.search(r"touchpad|stylus|mouse|pen", name, re.I) and not touch:
+            touch = "/dev/input/" + ev
+        sw = re.search(r"B: SW=(\w+)", b)
+        if sw and int(sw.group(1), 16) & 2 and not tablet:   # SW_TABLET_MODE = 1
+            tablet = "/dev/input/" + ev
+    return touch, tablet
+
+class Gesture:
+    EDGE = 0.035        # start zone, fraction of the screen
+    EDGE_GO = 0.10      # travel needed
+    MULTI_GO = 0.075    # average travel of 3 fingers (fraction of width)
+
+    def __init__(self, maxx, maxy):
+        self.mx, self.my = maxx, maxy
+        self.slot = 0
+        self.f = {}            # slot -> dict(x0,y0,x,y)
+        self.fired = False
+        self.peak = 0
+        self.base = None       # positions when 3rd finger landed
+
+    def event(self, t, c, v):
+        if t == EV_ABS:
+            if c == ABS_MT_SLOT: self.slot = v
+            elif c == ABS_MT_ID:
+                if v == -1: self.f.pop(self.slot, None)
+                else: self.f[self.slot] = {"x0": None, "y0": None, "x": 0, "y": 0}
+            elif c in (ABS_MT_X, ABS_MT_Y) and self.slot in self.f:
+                d = self.f[self.slot]
+                k = "x" if c == ABS_MT_X else "y"
+                d[k] = v / (self.mx if k == "x" else self.my)
+                if d[k + "0"] is None: d[k + "0"] = d[k]
+        elif t == EV_SYN:
+            self.sync()
+
+    def sync(self):
+        n = len(self.f)
+        if n == 0:
+            self.fired = False; self.peak = 0; self.base = None
+            return
+        self.peak = max(self.peak, n)
+        if self.fired: return
+        fs = list(self.f.values())
+        if any(d["x0"] is None or d["y0"] is None for d in fs): return
+        if self.peak == 1 and n == 1:
+            d = fs[0]; dx, dy = d["x"] - d["x0"], d["y"] - d["y0"]
+            if d["y0"] > 1 - self.EDGE and -dy > self.EDGE_GO and abs(dx) < -dy * 0.7:
+                self.fired = True; qs("keyboard", "open")
+            elif d["y0"] < self.EDGE and dy > self.EDGE_GO and abs(dx) < dy * 0.7:
+                self.fired = True; qs("notifications", "toggle")
+        elif n >= 3:
+            if self.base is None:
+                self.base = [(d["x"], d["y"]) for d in fs[:3]]
+                return
+            ax = sum(d["x"] - b[0] for d, b in zip(fs[:3], self.base)) / 3
+            ay = sum(d["y"] - b[1] for d, b in zip(fs[:3], self.base)) / 3 * (self.mx / self.my) * 0.56
+            if max(abs(ax), abs(ay)) < self.MULTI_GO: return
+            self.fired = True
+            if abs(ax) > abs(ay): ws("e+1" if ax < 0 else "e-1")
+            elif ay < 0: qs("overview", "toggle") if n >= 4 else qs("wheel", "toggle")
+            else: qs("calendar", "toggle")
+
+def main():
+    touch, tablet = find_devices()
+    if not touch:
+        print("touch-gestures: no touchscreen found", file=sys.stderr); return 1
+    tfd = os.open(touch, os.O_RDONLY | os.O_NONBLOCK)
+    mx = struct.unpack("6i", fcntl.ioctl(tfd, EVIOCGABS(ABS_MT_X), b"\0" * 24))[2] or 1
+    my = struct.unpack("6i", fcntl.ioctl(tfd, EVIOCGABS(ABS_MT_Y), b"\0" * 24))[2] or 1
+    g = Gesture(mx, my)
+    sel = selectors.DefaultSelector()
+    sel.register(tfd, selectors.EVENT_READ, "touch")
+    if tablet:
+        sfd = os.open(tablet, os.O_RDONLY | os.O_NONBLOCK)
+        sel.register(sfd, selectors.EVENT_READ, "switch")
+    print(f"touch-gestures: {touch} ({mx}x{my})  tablet-switch: {tablet}", flush=True)
+    while True:
+        for key, _ in sel.select():
+            try: data = os.read(key.fd, SZ * 64)
+            except BlockingIOError: continue
+            for i in range(0, len(data) - SZ + 1, SZ):
+                _, _, t, c, v = struct.unpack(FMT, data[i:i + SZ])
+                if key.data == "touch": g.event(t, c, v)
+                elif t == EV_SW and c == 1: qs("touch", "tablet", "true" if v else "false")
+
+if __name__ == "__main__":
+    sys.exit(main())

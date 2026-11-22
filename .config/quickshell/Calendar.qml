@@ -494,7 +494,7 @@ PanelWindow {
                         onAccepted: root.submit()
                         onActiveFocusChanged: if (activeFocus) {
                             root.addOpen = true
-                            if (Touch.mode) Quickshell.execDetached({ command: ["qs", "ipc", "call", "osk", "open"] })
+                            if (Touch.mode) Quickshell.execDetached({ command: ["qs", "ipc", "call", "keyboard", "open"] })
                         }
                         Keys.onEscapePressed: { text = ""; root.addOpen = false; menuRoot.forceActiveFocus() }
                     }

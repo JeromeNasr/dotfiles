@@ -1,0 +1,12 @@
+#!/bin/sh
+# Follows the accelerometer (iio-sensor-proxy) while ~/.config/quickshell/state/autorotate exists.
+FLAG="$HOME/.config/quickshell/state/autorotate"
+monitor-sensor --accel 2>/dev/null | while read -r line; do
+  [ -f "$FLAG" ] || continue
+  case "$line" in
+    *"orientation changed: normal"*)    ~/.local/bin/rotate-screen normal;;
+    *"orientation changed: left-up"*)   ~/.local/bin/rotate-screen left;;
+    *"orientation changed: right-up"*)  ~/.local/bin/rotate-screen right;;
+    *"orientation changed: bottom-up"*) ~/.local/bin/rotate-screen inverted;;
+  esac
+done

@@ -13,29 +13,17 @@ Singleton {
     readonly property string stateDir: Quickshell.env("HOME") + "/.config/quickshell/state"
     readonly property string statePath: stateDir + "/bluetooth-state.json"
     readonly property var sink: Pipewire.defaultAudioSink
-    readonly property bool btSink: !!(sink && sink.name && sink.name.indexOf("bluez") >= 0)
 
     property var removingDevices: ({})
     property int removalHideDurationMs: 10000
     property var rememberedDevices: []
     property var deviceVolumes: ({})
-    property var reconnectBackoff: ({})   // address -> { next: ms timestamp, delay: ms, tries: n }
     property bool stateLoaded: false
     property bool reconnectPaused: false
     property string trackedSink: ""
     property real settleUntil: 0
     property int settleMs: 6000
-    property int reconnectMaxTries: 4
 
-    // ---- persisted power state (single source of truth) -------------------
-    property string wantPower: ""         // "on" | "off" | "" (unknown / never set)
-    property bool powerRestored: false
-
-    onBtSinkChanged: if (!btSink) trackedSink = ""
-    onAdapterChanged: restorePower()
-
-    // Referenced from QuickActions at shell startup so this singleton
-    // (and its timers) exist before any settings page is opened.
     function init() {}
 
     Process {
@@ -50,10 +38,7 @@ Singleton {
         path: root.statePath
         printErrors: false
         onLoaded: root.loadState()
-        onLoadFailed: error => {
-            root.stateLoaded = true
-            root.restorePower()
-        }
+        onLoadFailed: error => root.stateLoaded = true
     }
 
     function deviceList() {
@@ -75,8 +60,6 @@ Singleton {
                         root.rememberedDevices = s.devices.filter(function (a) { return typeof a === "string" })
                     if (s.volumes && typeof s.volumes === "object")
                         root.deviceVolumes = s.volumes
-                    if (s.power === "on" || s.power === "off")
-                        root.wantPower = s.power
                 }
             } catch (error) {
                 console.warn("bluetooth: could not read saved state:", error)
@@ -84,82 +67,18 @@ Singleton {
         }
         root.stateLoaded = true
         root.pruneRemovingDevices()
-        root.restorePower()
     }
 
     function saveState() {
         if (!root.stateLoaded)
             return
-        saveTimer.restart()
-    }
-
-    Timer {
-        id: saveTimer
-        interval: 400
-        onTriggered: stateFile.setText(JSON.stringify({
+        stateFile.setText(JSON.stringify({
             removing: root.removingDevices,
             devices: root.rememberedDevices,
-            volumes: root.deviceVolumes,
-            power: root.wantPower
+            volumes: root.deviceVolumes
         }))
     }
 
-    // ---- power: used by BOTH the quick actions menu and the settings page --
-    function restorePower() {
-        if (root.powerRestored || !root.stateLoaded || !root.adapter)
-            return
-        root.powerRestored = true
-
-        if (root.wantPower === "off") {
-            root.reconnectPaused = true
-            root.adapter.enabled = false
-        } else if (root.wantPower === "on") {
-            root.reconnectPaused = false
-            root.adapter.enabled = true
-        }
-    }
-
-    function setPower(on) {
-        if (!root.adapter)
-            return
-
-        root.wantPower = on ? "on" : "off"
-        root.reconnectPaused = !on
-        root.saveState()
-
-        if (on) {
-            powerOffTimer.stop()
-            root.adapter.enabled = true
-            return
-        }
-
-        root.adapter.discovering = false
-
-        // disconnect devices first, then power off
-        var devs = root.deviceList()
-        for (var i = 0; i < devs.length; i++) {
-            var s = devs[i].state
-            if (s === BluetoothDeviceState.Connected || s === BluetoothDeviceState.Connecting)
-                devs[i].disconnect()
-        }
-        powerOffTimer.restart()
-    }
-
-    function togglePower() {
-        if (root.adapter)
-            root.setPower(!root.adapter.enabled)
-    }
-
-    Timer {
-        id: powerOffTimer
-        interval: 800
-        onTriggered: {
-            if (root.adapter && root.wantPower === "off")
-                root.adapter.enabled = false
-        }
-    }
-
-    // ---- remembered devices ------------------------------------------------
     function remember(address) {
         if (!address || root.rememberedDevices.indexOf(address) >= 0)
             return
@@ -210,33 +129,17 @@ Singleton {
     function reconnectRemembered() {
         if (!root.stateLoaded || !root.adapter || !root.powered || root.reconnectPaused)
             return
-        var now = Date.now()
         var devs = root.deviceList()
         for (var i = 0; i < devs.length; i++) {
             var d = devs[i]
             if (!d.address || root.rememberedDevices.indexOf(d.address) < 0)
                 continue
-            if (d.state === BluetoothDeviceState.Connected) {
-                delete root.reconnectBackoff[d.address]
-                continue
-            }
             if (root.removingDevices[d.address])
                 continue
             if (d.pairing)
                 continue
             if (d.state !== BluetoothDeviceState.Disconnected)
                 continue
-            var b = root.reconnectBackoff[d.address]
-            if (b && b.tries >= root.reconnectMaxTries)
-                continue                      // gave up; wait for manual connect / adapter toggle
-            if (b && now < b.next)
-                continue
-            var delay = b ? Math.min(b.delay * 2, 60000) : 10000
-            root.reconnectBackoff[d.address] = {
-                next: now + delay,
-                delay: delay,
-                tries: (b ? b.tries : 0) + 1
-            }
             d.trusted = true
             d.connect()
         }
@@ -269,7 +172,6 @@ Singleton {
         }
     }
 
-    // ---- per-device volume memory -----------------------------------------
     function sinkAddressFor(node) {
         if (!node || !node.name || node.name.indexOf("bluez") < 0)
             return ""
@@ -321,7 +223,7 @@ Singleton {
 
     Timer {
         interval: 250
-        running: root.stateLoaded && root.btSink
+        running: root.stateLoaded
         repeat: true
         onTriggered: root.volumeTick()
     }
@@ -347,7 +249,6 @@ Singleton {
     Connections {
         target: root.adapter
         function onEnabledChanged() {
-            root.reconnectBackoff = ({})
             if (root.adapter && root.adapter.enabled)
                 root.reconnectPaused = false
             root.reconnectRemembered()

@@ -1,74 +1,52 @@
 <div align="center">
 
-<img width="2171" height="724" alt="43pr_dotfiles_combined" src="assets/banner.png" />
+## Hyprland Setup by 43pr メ
 
-<p align="center">
-<img src="https://img.shields.io/badge/HYPRLAND-0.57-667A82?style=flat&labelColor=101418" height="20" alt="Hyprland">
-<a href="https://discord.gg/j32UAE4WFP"><img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fdiscord.com%2Fapi%2Finvites%2Fj32UAE4WFP%3Fwith_counts%3Dtrue&query=%24.approximate_member_count&style=flat&logo=discord&logoColor=ffffff&label=DISCORD&labelColor=101418&color=7289a8" height="20" alt="Discord"></a>
-<a href="https://www.youtube.com/@43PR"><img src="https://img.shields.io/badge/YOUTUBE-SUBSCRIBE-b05a63?style=flat&logo=youtube&logoColor=ffffff&labelColor=101418" height="20" alt="YouTube"></a>
-<a href="https://ko-fi.com/43pr"><img src="https://img.shields.io/badge/SUPPORT-KOFI?style=flat&logo=ko-fi&logoColor=ffffff&label=KO--FI&labelColor=101418&color=9a6570" height="20" alt="Ko-Fi"></a>
-</p>
+A clean and simple Hyprland setup focused on practical keybinds, productivity, and easy to customize.
 
-<b><a href="#features">Features</a>  ·  <a href="#keybinds">Keybinds</a>  ·  <a href="#installation">Installation</a></b>
+![Hyprland](https://img.shields.io/badge/Hyprland-0.56.2-8b9aaf?style=for-the-badge&labelColor=101418)
+![GitHub repo size](https://img.shields.io/github/repo-size/43PR/dotfiles?style=for-the-badge&labelColor=101418&color=8b9aaf)
+[![Discord](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fdiscord.com%2Fapi%2Finvites%2FHQwU9SzHj%3Fwith_counts%3Dtrue&query=%24.approximate_member_count&style=for-the-badge&logo=discord&logoColor=ffffff&label=discord&labelColor=101418&color=7289a8)](https://discord.gg/HQwU9SzHj)
+[![YouTube](https://img.shields.io/badge/youtube-subscribe-b05a63?style=for-the-badge&logo=youtube&logoColor=ffffff&labelColor=101418)](https://www.youtube.com/@43PR2)
+[![Ko-Fi donate](https://img.shields.io/badge/donate-kofi?style=for-the-badge&logo=ko-fi&logoColor=ffffff&label=ko-fi&labelColor=101418&color=9a6570)](https://ko-fi.com/43pr)
+
+### **[Features](#features)  -  [Keybinds](#keybinds)  -  [Installation](#installation) -  [Updating](#updating)**
 
 </div>
 
-<img width="1920" height="1080" alt="1793227457" src="assets/desktop.png" />
+<img width="1920" height="1080" alt="1791658361" src="https://github.com/user-attachments/assets/3ce57df8-499e-4b26-9975-354c53665864" />
 
-<p align="center">
-  <sub>
-    <b>English</b> · <a href="docs/README.es.md">Español</a> · <a href="docs/README.ru.md">Русский</a> · <a href="docs/README.zh-CN.md">中文</a> · <a href="docs/README.ja.md">日本語</a> · <a href="docs/README.pt.md">Português</a> · <a href="docs/README.fr.md">Français</a> · <a href="docs/README.de.md">Deutsch</a>
-  </sub>
-</p>
-
-<details>
-<summary><b>✧ What is this? Requirements?</b></summary>
-
-<br>
-
-A full customizable Linux desktop: bar, system settings and menus to customize your desktop. Built on **Hyprland** (window manager) and **Quickshell** (what the bar and menus are made with). 
-
-This setup aims to keep things simple, fast, practical, and easy to make your own without editing config files.
-
-### Requirements
-
-- **Arch-based distro:** Arch, CachyOS, EndeavourOS, Manjaro, etc.
-- **A mostly clean install.** Replaced configs are backed up automatically.
-
-> New to Linux? I recommend watching this [CachyOS Tutorial](https://www.youtube.com/watch?v=rJcrb7vxoCo). 
-
-**Need help?** Join the Discord (button above).
-
-### Hardware
-
-- RAM: 4 GB minimum, 8 GB recommended.
-- GPU: Intel, AMD or NVIDIA with compatible wayland drivers.
-- Display: FHD or > recommended.
-
-For reference, I made this project on a 6th-gen i5 Dell laptop with integrated graphics, so it should run really smoothly on other potatoes too :).
-
-</details>
+Wallpapers: https://wallhaven.cc/user/43pr
 
 ## Features
 
-- **Quickshell** — Fast, lightweight, customizable desktop components.
-- **Top bar** - Customizable bar with settings, and quick shortcuts.
-- **Settings** — System settings, customize hyprland appearance, and themes.
-- **Wallpaper picker** — Customizable | Wallpaper-based color generation, and live wallpapers.
-- **Preset Themes** — Monochrome, Nord, Tokyo Night and more, with custom theme support.
-- **App Launcher** — **Rofi** App search, clipboard history, and opacity controls.
-- **Zsh + Starship** — Enhanced shell with autosuggestions and command history.
+- **Top bar** - Customizing options, vertical bar, styles, calendar, controls for volume and media playback.
+- **Settings Menu** — System, network, bluetooth, display, audio, storage, themes, and more.
+- **Wallpaper picker & Dynamic Colors** — Custom wallpaper selector with automatic wallpaper-based color generation.
+- **Preset Themes** — Default Monochrome, Nord, Tokyo Night, etc, and easily create your own. 
+- **App Launcher** — **Rofi** Application search, clipboard history, and opacity control.
+- **Zsh + Starship** — Customizable shell with autosuggestions and history.
+- **Customizable Power Menu** —  Custom power menu. 
+- **Notes / To do** —  Custom quick Notes/To-do. 
+- **Hyprlock** — Custom lock screen.
+- **Spotify + Spicetify** — Custom theme based on **text - darkthemer**, (modified).
+- **Custom Scripts** — Scripts for workflow and system management.
+
+> All programs: [packages.txt](packages.txt)
+
+### Wallpaper Selector
+
+Just made some tweaks to it. Give it some love: [hyprquickpaper](https://github.com/iamsurjog/hyprquickpaper)
 
 ## Keybinds
 
-Hover over elements to see actions. 
+> **You can modify keybinds using HyprMod**
 
 | Keybind                 | Action                    |
 | -----------             | ------------------------- |
 | `Super + T`             | Terminal                  |
 | `Super + Q`             | Close active window       |
 | `Super + D`             | Application launcher      |
-| `Super + I`             | Settings menu             |
 | `Super + Space`         | Toggle floating window    |
 | `Super + F`             | Toggle fullscreen         |
 | `Super + 1, 2, 3..`     | Change workspaces         |
@@ -76,42 +54,24 @@ Hover over elements to see actions.
 | `Super + E`             | File manager              |
 | `Super + B`             | Browser                   |
 | `Super + V`             | Clipboard history         |
-| `Super + S`             | Side panel                |
-| `Super + O`             | Switch opacity            |
-| `Super + C`             | Notes & Reminders         |
+| `Super + S`             | Second launcher           |
+| `Super + I`             | Settings menu             |
 | `Super + W`             | Wallpaper selector        |
-
-<details>
-<summary><b>✧ More keybinds</b></summary>
-
-<br>
-
-| Keybind                          | Action                        |
-| -------------------------------- | ----------------------------- |
-| `Super + Grave`                  | Logout menu                   |
-| `Super + Shift + C`              | Color picker tool             |
-| `Super + Mouse wheel`            | Zoom in/out                   |
-| `Super + Shift + W`              | Toggle bar                    |
-| `Super + Tab`                    | Lock screen                   |
-| `Super + R`                      | Toggle screen recorder        |
-| `SHIFT + F12`                    | Text extractor (OCR)          |
-| `Super + H / J / K / L`          | Focus window                  |
-| `Super + Shift + H / J / K / L`  | Move window                   |
-| `Super + .`                      | Toggle dark/light mode        |
-| `Super + X`                      | Switch keyboard layout        |
-| `Super + M`                      | Toggle mic mute               |
-| `Delete`                         | Screenshot (full screen)      |
-| `Shift + Delete`                 | Screenshot (area)             |
-
-> [!tip]
->
-> Keybinds can be changed from **Settings → Keybinds**, you can create your own custom keybinds, choose your default browser, set screenshot options (save to folder / copy to clipboard) and manage OCR languages.
-
-</details>
+| `Super + O`             | Switch opacity            |
+| `Super + Tab`           | Lock screen               |
+| `Super + Grave`         | Logout menu               |
+| `Super + Shift + W`     | Toggle bar                |
+| `Super + Mouse wheel`   | Zoom in/out               |
+| `Super + C`             | Notes/To-do               |
+| `Super + N`             | Notifications             |
+| `Delete`                | Screenshot fullscreen     |
+| `SHIFT + Delete`        | Screenshot area select    |
 
 > [!note]
 >
-> Move and resize windows with Super + left/right mouse drag.
+> **Move and resize windows with Super + left/right mouse drag.**
+>
+> All keybinds: [.config/hypr/keybinds.lua](.config/hypr/keybinds.lua)
 
 ---
 ## Installation 
@@ -135,13 +95,11 @@ chmod +x install.sh
 ./install.sh
 ```
 
-After the installation finishes log out and back in. 
+After the installation finishes log out and back in.
 
-> Check settings and keybinds first.
->
-> Right-click on desktop components to customize them. 
->
-> To close components use Esc key or use the same keybind. 
+Right-click the clock to open Bar Settings. 
+
+It will show an empty desktop, dowload and move wallpapers to Pictures/Wallpapers, then you can use the wallpaper picker with: Super + W.
 
 > [!important]
 > **Do not move or delete the dotfiles repository after installation.**
@@ -154,12 +112,39 @@ After the installation finishes log out and back in.
 > ./install.sh
 > ```
 >
-> The installer will update the existing symlinks to point to the new location.
+> The installer will automatically update the existing symlinks to point to the new location.
 
 ---
+## Updating
 
-### Credits
+If you didn't move the repository/dotfiles folder then run:
 
-**Wallpaper selector:** modified, originally built from the [hyprquickpaper](https://github.com/iamsurjog/hyprquickpaper) by iamsurjog.
+```bash
+cd dotfiles
+git pull
+./update.sh
+```
 
-**Banner artwork:** by cherry✟ ([@aletiune](https://x.com/aletiune)). 
+Other options: `--dry-run` (preview changes), `--skip-packages`, `--skip-theme`.
+
+Dotfiles are symlinked so, `git pull` updates your live configs directly.
+
+You can check the reminders printed at the end of the run.
+
+> [!tip]
+> If any Quickshell (`.qml`) files changed in the pull, run:
+>
+> ```bash
+> ./update.sh --restart-shell
+> ```
+>
+> to restart Quickshell automatically.
+
+> [!note]
+> 
+> Custom-gpu parts are specific to my hardware.
+>
+> For issues with the wallpaper picker, you can clear the cache from the Storage page in Settings.
+
+
+
